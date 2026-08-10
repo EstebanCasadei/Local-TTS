@@ -3,9 +3,9 @@
 
 export const MAX_CHUNK_CHARS = 220;
 
-export function splitSentences(text: string, locale = 'es'): string[] {
-  if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
-    const segmenter = new Intl.Segmenter(locale, { granularity: 'sentence' });
+export function splitSentences(text: string, locale = "es"): string[] {
+  if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+    const segmenter = new Intl.Segmenter(locale, { granularity: "sentence" });
     return Array.from(segmenter.segment(text), (s) => s.segment.trim()).filter(Boolean);
   }
   return text
@@ -16,10 +16,10 @@ export function splitSentences(text: string, locale = 'es'): string[] {
 
 export function chunkText(
   text: string,
-  { locale = 'es' }: { maxChars?: number; locale?: string } = {},
+  { locale = "es" }: { maxChars?: number; locale?: string } = {},
 ): string[] {
-  const normalized = String(text ?? '')
-    .replace(/\r\n?/g, '\n')
+  const normalized = String(text ?? "")
+    .replace(/\r\n?/g, "\n")
     .trim();
   if (!normalized) return [];
 
