@@ -80,6 +80,37 @@ which validates the config, the Anonymous auth provider, and the per-user
 firestore rules. The test is opt-in (gated behind `FIREBASE_SMOKE_TEST=1`, set
 automatically by the script) so `pnpm test` stays offline.
 
+## Deployment (Vercel)
+
+The app is a static SPA hosted on Vercel. Firebase stays for Auth + Firestore
+(hosting-agnostic — the client SDK talks to them over HTTPS from any origin).
+
+1. **Import the project** — at [vercel.com](https://vercel.com) → New Project →
+   import this GitHub repo. Vercel auto-detects Vite; the included
+   `vercel.json` adds the SPA catch-all rewrite to `index.html` (static assets
+   like `/assets/*` and `/favicon.svg` are served first, then unmatched paths
+   fall back to the SPA).
+2. **Set env vars (Production only)** — in Vercel project Settings →
+   Environment Variables, add the four `VITE_FIREBASE_*` vars scoped to the
+   **Production** environment. Leave **Preview** unset so PR previews run in the
+   app's local-only mode (no anonymous uids, no prod Firestore writes). Auth and
+   sync flows are tested locally with `.env` or on the production deploy.
+3. **Allow-list the production domain** — Firebase Console → Authentication →
+   Settings → Authorized domains → add the Vercel production domain
+   (e.g. `local-tts.vercel.app` or a custom domain). `localhost` is already
+   allowed; Vercel preview URLs are dynamic and can't be pre-allowed, which is
+   why previews run without Firebase.
+4. **Auto-deploys** — once the GitHub integration is connected, every merge to
+   `main` deploys to production and every PR opens a preview deploy.
+
+Local production preview (optional):
+
+```bash
+nvm use
+pnpm build
+pnpm preview         # or `vercel` if you install the Vercel CLI (`npm i -g vercel`)
+```
+
 ## Tech notes
 
 - **React Compiler** is enabled (via `babel-plugin-react-compiler`). See
