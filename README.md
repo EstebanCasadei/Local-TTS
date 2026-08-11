@@ -24,15 +24,15 @@ The dev server starts without a `.env`; Firebase features simply stay disabled.
 
 ## Scripts
 
-| Script | Description |
-| --- | --- |
-| `pnpm dev` | Start the Vite dev server |
-| `pnpm build` | Type-check (`tsc -b`) and build for production |
-| `pnpm test` | Run the vitest suite (offline, no Firebase calls) |
-| `pnpm test:watch` | Watch mode |
+| Script                 | Description                                                    |
+| ---------------------- | -------------------------------------------------------------- |
+| `pnpm dev`             | Start the Vite dev server                                      |
+| `pnpm build`           | Type-check (`tsc -b`) and build for production                 |
+| `pnpm test`            | Run the vitest suite (offline, no Firebase calls)              |
+| `pnpm test:watch`      | Watch mode                                                     |
 | `pnpm verify:firebase` | Run the Firebase smoke test against your real project (opt-in) |
-| `pnpm lint` | Lint with Oxlint |
-| `pnpm preview` | Preview the production build locally |
+| `pnpm lint`            | Lint with Oxlint                                               |
+| `pnpm preview`         | Preview the production build locally                           |
 
 ## Firebase setup (optional)
 
