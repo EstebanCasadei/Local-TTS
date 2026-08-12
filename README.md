@@ -89,7 +89,8 @@ are served first, then unmatched paths fall back to the SPA.
 
 ### One-time CI setup (HITL)
 
-The deploy workflows reference two repo secrets. Run this once to create them:
+The deploy workflows reference a service-account secret. Run this once to
+create it:
 
 ```bash
 nvm use
@@ -98,10 +99,12 @@ firebase init hosting:github
 
 The CLI walks you through selecting your Firebase project and the GitHub repo,
 creates a service account with Hosting deploy permissions, and writes the
-encrypted key to the `FIREBASE_SERVICE_ACCOUNT` repo secret (plus
-`FIREBASE_PROJECT_ID`). If you'd rather do it manually: Firebase Console →
-Project Settings → Service Accounts → generate a JSON key, then add it as
-`FIREBASE_SERVICE_ACCOUNT` in GitHub repo Settings → Secrets.
+encrypted key to a repo secret named
+`FIREBASE_SERVICE_ACCOUNT_<PROJECT_ID>` (e.g. `FIREBASE_SERVICE_ACCOUNT_LOCAL_TTS_AD27A`
+for project `local-tts-ad27a`). The project ID is embedded as a literal in the
+workflow YAML (it's a public identifier, not a secret). If you'd rather do it
+manually: Firebase Console → Project Settings → Service Accounts → generate a
+JSON key, then add it under that secret name in GitHub repo Settings → Secrets.
 
 ### Auto-deploys
 
