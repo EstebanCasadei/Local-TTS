@@ -7,7 +7,10 @@ on:
 
 # The action needs to create check runs and comment on PRs with the preview URL.
 # GitHub's default GITHUB_TOKEN is read-only since 2023, so grant these explicitly.
+# Note: a workflow-level permissions block resets unlisted scopes to none, so
+# contents: read is required for actions/checkout to clone the repo.
 permissions:
+  contents: read
   checks: write
   pull-requests: write
 
