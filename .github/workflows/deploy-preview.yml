@@ -5,6 +5,12 @@ on:
   # To disable preview deploys for dependabot/renovate PRs, add:
   # if: github.actor != 'dependabot[bot]'
 
+# The action needs to create check runs and comment on PRs with the preview URL.
+# GitHub's default GITHUB_TOKEN is read-only since 2023, so grant these explicitly.
+permissions:
+  checks: write
+  pull-requests: write
+
 jobs:
   build_and_preview:
     runs-on: ubuntu-latest
