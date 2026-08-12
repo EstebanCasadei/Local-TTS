@@ -80,6 +80,56 @@ which validates the config, the Anonymous auth provider, and the per-user
 firestore rules. The test is opt-in (gated behind `FIREBASE_SMOKE_TEST=1`, set
 automatically by the script) so `pnpm test` stays offline.
 
+## Deployment (Firebase Hosting)
+
+The app is a static SPA hosted on Firebase Hosting (same project as Auth +
+Firestore). The `hosting` block in `firebase.json` points at `dist/` and adds a
+catch-all rewrite to `index.html` — static assets (`/assets/*`, `/favicon.svg`)
+are served first, then unmatched paths fall back to the SPA.
+
+### One-time CI setup (HITL)
+
+The deploy workflows reference a service-account secret. Run this once to
+create it:
+
+```bash
+nvm use
+firebase init hosting:github
+```
+
+The CLI walks you through selecting your Firebase project and the GitHub repo,
+creates a service account with Hosting deploy permissions, and writes the
+encrypted key to a repo secret named
+`FIREBASE_SERVICE_ACCOUNT_<PROJECT_ID>` (e.g. `FIREBASE_SERVICE_ACCOUNT_LOCAL_TTS_AD27A`
+for project `local-tts-ad27a`). The project ID is embedded as a literal in the
+workflow YAML (it's a public identifier, not a secret). If you'd rather do it
+manually: Firebase Console → Project Settings → Service Accounts → generate a
+JSON key, then add it under that secret name in GitHub repo Settings → Secrets.
+
+### Auto-deploys
+
+Two GitHub Actions (using `FirebaseExtended/action-hosting-deploy`):
+
+- **Preview on PR** (`.github/workflows/deploy-preview.yml`) — every PR gets a
+  preview channel at a `*.web.app` URL, posted as a comment on the PR. The URL
+  is stable per PR and updates on each push. Preview channels live under your
+  project's own domain, which is already authorized for Firebase Auth — so
+  previews can exercise real auth/sync flows (unlike Vercel's dynamic preview
+  subdomains, which Firebase Auth can't allow-list). Channels expire after 30d.
+- **Live on merge** (`.github/workflows/deploy-prod.yml`) — every push to
+  `main` builds and deploys to the live channel.
+
+### Manual deploy (optional)
+
+```bash
+nvm use
+pnpm build
+firebase deploy --only hosting
+```
+
+`firebase deploy` (no `--only`) deploys Firestore rules + indexes + hosting in
+one shot.
+
 ## Tech notes
 
 - **React Compiler** is enabled (via `babel-plugin-react-compiler`). See

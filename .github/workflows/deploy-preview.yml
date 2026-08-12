@@ -1,0 +1,53 @@
+name: Deploy Preview Channel
+
+on:
+  pull_request:
+  # To disable preview deploys for dependabot/renovate PRs, add:
+  # if: github.actor != 'dependabot[bot]'
+
+# The action needs to create check runs and comment on PRs with the preview URL.
+# GitHub's default GITHUB_TOKEN is read-only since 2023, so grant these explicitly.
+# Note: a workflow-level permissions block resets unlisted scopes to none, so
+# contents: read is required for actions/checkout to clone the repo.
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  build_and_preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install pnpm
+        run: corepack enable
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_LOCAL_TTS_AD27A }}
+          projectId: local-tts-ad27a
+          expires: 30d
