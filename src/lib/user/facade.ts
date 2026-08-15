@@ -1,6 +1,5 @@
 import { firebaseConfigured, getFirebase } from "../firebase";
-import type { User } from "../../types/user.ts";
-import type { FirstSyncEvent, MergeSnapshot } from "./types";
+import type { FirstSyncEvent, MergeSnapshot, User } from "../../types";
 import type { LocalUserStore, UserService } from "./UserService";
 import { LocalUserService, defaultLocalUserStore } from "./LocalUserService";
 import { FirebaseUserService } from "./FirebaseUserService";

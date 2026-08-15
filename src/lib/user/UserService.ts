@@ -1,4 +1,4 @@
-import type { User } from "../../types/user.ts";
+import type { User } from "../../types";
 
 // The public contract the frontend consumes. The frontend imports this
 // interface (and useUser), never firebase/auth directly — the "where is the
