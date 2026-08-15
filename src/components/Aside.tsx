@@ -1,8 +1,16 @@
 import { useState } from "react";
+import { Link, NavLink, useLocation } from "react-router";
 
+// Reading a book is reached from the library, so "Biblioteca" stays
+// highlighted there too. ponytail: hardcoded for the one nav item that
+// needs it; generalize only if more sections grow sub-routes.
+const LIBRARY_PATHS = ["/", "/reading"];
+
+// `to: null` = no page behind it yet, rendered as a plain (inactive) link.
+// ponytail: switch to `to: "/options"` once that route exists.
 const NAV = [
-  { id: "library", label: "Biblioteca", icon: LibraryIcon },
-  { id: "options", label: "Opciones", icon: GearIcon },
+  { to: "/", label: "Biblioteca", icon: LibraryIcon },
+  { to: null, label: "Opciones", icon: GearIcon },
 ];
 
 const SECONDARY = [
@@ -14,6 +22,7 @@ let syncStatus = "synced"; // "synced", "syncing", "error"
 
 export function Aside() {
   const [open, setOpen] = useState(false);
+  const { pathname } = useLocation();
 
   return (
     <>
@@ -39,30 +48,43 @@ export function Aside() {
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <a className="mb-4 flex items-center justify-center gap-2" href="/">
+        <Link className="mb-4 flex items-center justify-center gap-2" to="/">
           <BookIcon />
           <span className="font-h1 font-medium leading-none">
             <span className="block">Local</span>
             <span className="block text-brand-primary">TTS</span>
           </span>
-        </a>
+        </Link>
 
         <nav className="flex flex-col gap-1">
-          {NAV.map(({ id, label, icon: Icon }, index) => (
-            <a
-              aria-current={index === 0 ? "page" : undefined}
-              className={`font-h3 flex items-center gap-3 rounded-[8px] p-4 ${
-                index === 0
-                  ? "bg-bg-primary border-r-2 border-border-primary "
-                  : "text-text-primary hover:bg-bg-tertiary"
-              }`}
-              href={`#${id}`}
-              key={id}
-            >
-              <Icon />
-              {label}
-            </a>
-          ))}
+          {NAV.map(({ to, label, icon: Icon }) =>
+            to ? (
+              <NavLink
+                className={() => {
+                  const isActive = to === "/" ? LIBRARY_PATHS.includes(pathname) : pathname === to;
+                  return `font-h3 flex items-center gap-3 rounded-[8px] p-4 ${
+                    isActive
+                      ? "bg-bg-primary border-r-2 border-border-primary"
+                      : "text-text-primary hover:bg-bg-tertiary"
+                  }`;
+                }}
+                key={label}
+                to={to}
+              >
+                <Icon />
+                {label}
+              </NavLink>
+            ) : (
+              <a
+                className="font-h3 flex items-center gap-3 rounded-[8px] p-4 text-text-primary hover:bg-bg-tertiary"
+                href={`#${label}`}
+                key={label}
+              >
+                <Icon />
+                {label}
+              </a>
+            ),
+          )}
         </nav>
 
         <nav className="mt-auto flex flex-col gap-1">
