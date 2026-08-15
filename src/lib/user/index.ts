@@ -10,7 +10,8 @@ import { UserServiceFacade } from "./facade";
 // The singleton is created once and shared, so the frontend's useUser and
 // #18's data layer see the same user transitions.
 
-export type { User, SyncStatus, FirstSyncEvent, MergeSnapshot } from "./types";
+export type { User, SyncStatus } from "../../types/user.ts";
+export type { FirstSyncEvent, MergeSnapshot } from "./types";
 export type { UserService, LocalUserStore } from "./UserService";
 export type { UserServiceFacade } from "./facade";
 

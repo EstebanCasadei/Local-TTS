@@ -8,7 +8,14 @@ import { onFirstSync } from "../user";
 //   getBookRepository()           — the singleton facade
 //   startFirestoreSync(repo)      — #18 calls this to plug in the real Firestore impl
 
-export type { Book, Bookmark, Chunk, Progress, DocumentFormat, EpochTimestamp } from "./types";
+export type {
+  Book,
+  Bookmark,
+  Chunk,
+  Progress,
+  DocumentFormat,
+  EpochTimestamp,
+} from "../../types/book.ts";
 export type { BookRepository } from "./BookRepository";
 export type { BookStore } from "./LocalBookRepository";
 export type { BookRepositoryFacade } from "./facade";

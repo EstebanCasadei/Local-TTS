@@ -9,7 +9,8 @@ import {
   type Auth,
   type User as FbUser,
 } from "firebase/auth";
-import type { MergeSnapshot, User } from "./types";
+import type { User } from "../../types/user.ts";
+import type { MergeSnapshot } from "./types";
 import type { UserService } from "./UserService";
 
 function toUser(fbUser: FbUser): User {

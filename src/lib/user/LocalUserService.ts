@@ -1,4 +1,4 @@
-import type { User } from "./types";
+import type { User } from "../../types/user.ts";
 import type { LocalUserStore, UserService } from "./UserService";
 import { kvGet, kvSet } from "../localDb";
 

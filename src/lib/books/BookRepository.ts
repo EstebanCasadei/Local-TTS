@@ -1,4 +1,4 @@
-import type { Book, Bookmark, Chunk, Progress } from "./types";
+import type { Book, Bookmark, Chunk, Progress } from "../../types/book.ts";
 
 // The public contract the frontend and #18 consume. Works identically in
 // local-only and synced modes — the facade decides which implementation is

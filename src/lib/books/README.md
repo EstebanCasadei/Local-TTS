@@ -123,7 +123,7 @@ chunks of a book are one cursor scan. The `BookStore` port keeps
 
 | File                         | Role                                                     |
 | ---------------------------- | -------------------------------------------------------- |
-| `types.ts`                   | `Book`, `Chunk`, `Progress`, `Bookmark`                  |
+| `../../types/book.ts`        | `Book`, `Chunk`, `Progress`, `Bookmark`                  |
 | `BookRepository.ts`          | The public interface + `BookStore` port                  |
 | `LocalBookRepository.ts`     | Local-first strategy (IndexedDB-backed, no-op sync)      |
 | `FirestoreBookRepository.ts` | Stub (full Firestore sync is #18)                        |
