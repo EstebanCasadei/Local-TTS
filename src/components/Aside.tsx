@@ -136,12 +136,12 @@ export function Aside() {
   );
 }
 
-const svg = "size-5 shrink-0";
+const SVG_DEFAULT_CONFIG = "size-5 shrink-0";
 
 function MenuIcon() {
   return (
     <svg
-      className={svg}
+      className={SVG_DEFAULT_CONFIG}
       width="16"
       height="16"
       viewBox="0 0 16 16"
@@ -187,7 +187,7 @@ function BookIcon() {
 function LibraryIcon() {
   return (
     <svg
-      className={svg}
+      className={SVG_DEFAULT_CONFIG}
       width="19"
       height="19"
       viewBox="0 0 19 19"
@@ -205,7 +205,7 @@ function LibraryIcon() {
 function GearIcon() {
   return (
     <svg
-      className={svg}
+      className={SVG_DEFAULT_CONFIG}
       width="21"
       height="20"
       viewBox="0 0 21 20"
@@ -223,7 +223,7 @@ function GearIcon() {
 function HelpIcon() {
   return (
     <svg
-      className={svg}
+      className={SVG_DEFAULT_CONFIG}
       width="20"
       height="20"
       viewBox="0 0 20 20"
@@ -241,7 +241,7 @@ function HelpIcon() {
 function ShieldIcon() {
   return (
     <svg
-      className={svg}
+      className={SVG_DEFAULT_CONFIG}
       width="16"
       height="20"
       viewBox="0 0 16 20"
