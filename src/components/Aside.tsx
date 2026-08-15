@@ -10,6 +10,8 @@ const SECONDARY = [
   { id: "privacy", label: "Privacidad", icon: ShieldIcon },
 ];
 
+let syncStatus = "synced"; // "synced", "syncing", "error"
+
 export function Aside() {
   const [open, setOpen] = useState(false);
 
@@ -18,7 +20,7 @@ export function Aside() {
       <button
         aria-expanded={open}
         aria-label="Abrir menú"
-        className="fixed top-4 left-4 z-30 grid size-10 place-items-center rounded-md bg-bg-secondary text-text-primary md:hidden"
+        className="fixed top-4 left-4 z-30 grid size-10 place-items-center rounded-full shadow-large bg-bg-secondary text-text-primary md:hidden"
         onClick={() => setOpen(true)}
         type="button"
       >
@@ -37,10 +39,7 @@ export function Aside() {
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <a
-          className="mb-4 border-b-2 border-border-primary flex items-center justify-center gap-2"
-          href="/"
-        >
+        <a className="mb-4 flex items-center justify-center gap-2" href="/">
           <BookIcon />
           <span className="font-h1 font-medium leading-none">
             <span className="block">Local</span>
@@ -84,12 +83,31 @@ export function Aside() {
             <p className="font-h3 truncate">Jane Doe</p>
             <p className="font-label truncate text-text-secondary">janedoe@gmail.com</p>
           </div>
-          <span
-            aria-label="Estado: Sincronizado"
-            className="grid size-8 shrink-0 place-items-center rounded-full text-text-inverse bg-action-success p-2"
-          >
-            <CloudIcon />
-          </span>
+          {/* TODO: Add sync status indicator */}
+          {syncStatus === "synced" && (
+            <span
+              aria-label="Estado: Sincronizado"
+              className="grid size-8 shrink-0 place-items-center rounded-full text-text-inverse bg-action-success p-2"
+            >
+              <CloudIcon />
+            </span>
+          )}
+          {syncStatus === "syncing" && (
+            <span
+              aria-label="Estado: Sincronizando"
+              className="grid size-8 shrink-0 place-items-center rounded-full text-text-inverse bg-action-waiting p-2"
+            >
+              <CloudIcon />
+            </span>
+          )}
+          {syncStatus === "error" && (
+            <span
+              aria-label="Estado: Error"
+              className="grid size-8 shrink-0 place-items-center rounded-full text-text-inverse bg-action-error p-2"
+            >
+              <CloudIcon />
+            </span>
+          )}
         </div>
       </aside>
     </>
@@ -100,11 +118,20 @@ const svg = "size-5 shrink-0";
 
 function MenuIcon() {
   return (
-    <svg className={svg} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+    <svg
+      className={svg}
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
       <path
-        d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        d="M2 8h12M2 4h12M2 12h12"
+        stroke="#c6c5d5"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
       />
     </svg>
   );
