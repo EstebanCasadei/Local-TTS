@@ -1,9 +1,28 @@
 import { getBookRepository } from "./books/index.ts";
 import type { Book } from "../types/book.ts";
 
-// ponytail: seed temporal para visualizar la LibraryPage con documentos.
-// Se dispara solo en dev y si aún no hay libros reales; quitar una vez el
-// flujo de carga de archivos esté listo.
+// --- TEMPORARY DEVELOPMENT SEED ---
+//
+// The books shown in LibraryPage when you run `pnpm dev` are fake data
+// created only to preview the populated UI before the real upload/extract
+// pipeline exists (#7/#8/#9).
+//
+// Files involved:
+//   - src/lib/devSeed.ts   (this file: defines the seed data)
+//   - src/main.tsx         (calls seedDev() only in dev)
+//   - src/components/library/* (ContinueCard, BookRow, shared.tsx)
+//   - src/pages/LibraryPage.tsx
+//
+// How to remove the seeded books:
+//   1. Clear the localStorage flag: `localStorage.removeItem("dev:library-seeded")`
+//   2. Clear the book repository in IndexedDB (Application > IndexedDB
+//      > local-tts-db > books, or use DevTools > Application > Storage > Clear
+//      site data).
+//   3. Reload the page.
+//
+// To disable the seed entirely, remove the `seedDev()` call from
+// src/main.tsx. Delete this file once document upload is real.
+// ---
 export async function seedDev(): Promise<void> {
   if (import.meta.env.PROD || localStorage.getItem("dev:library-seeded")) {
     return;
