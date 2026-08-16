@@ -12,12 +12,14 @@
   --color-bg-tertiary: #131b2f;
 
   --color-text-primary: #c6c5d5;
+  --color-text-primary-hover: #a8a6c0;
   --color-text-secondary: #787887;
   --color-text-inverse: #252525;
 
   --color-border-primary: #2d3449;
 
-  --color-action-primary: #818cf8;
+  --color-action-primary: #4f57ba;
+  --color-action-primary-hover: #3d4294;
   --color-action-success: #818cf8;
   --color-action-waiting: #fbbf24;
   --color-action-error: #f87171;
