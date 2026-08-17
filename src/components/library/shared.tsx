@@ -24,12 +24,8 @@ export function PlayIcon(props: SVGProps<SVGSVGElement>) {
   return <PlayIconSvg className="size-5" {...props} />;
 }
 
-export function DotsIcon() {
-  return (
-    <div className="p-2 bg-bg-primary rounded-full border border-border-primary text-text-primary">
-      <DotsIconSvg className="size-4" />
-    </div>
-  );
+export function DotsIcon({ className = "size-5" }: { className?: string }) {
+  return <DotsIconSvg className={className} />;
 }
 
 // ponytail: placeholder badges hasta que Book tenga un campo de sync.

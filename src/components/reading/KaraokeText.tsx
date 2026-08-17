@@ -5,13 +5,20 @@ type KaraokeTextProps = {
   activeIndex: number;
 };
 
+/** El chunk activo se resalta; lo ya leído queda atenuado. */
 export function KaraokeText({ chunks, activeIndex }: KaraokeTextProps) {
   return (
-    <p className="space-x-1 leading-relaxed">
+    <p className="font-p leading-relaxed">
       {chunks.map((chunk, index) => (
         <span
+          className={
+            index === activeIndex
+              ? "rounded-[4px] bg-action-primary/40 text-text-primary"
+              : index < activeIndex
+                ? "text-text-secondary"
+                : "text-text-primary"
+          }
           key={`chunk-${index}`}
-          className={index === activeIndex ? "bg-yellow-200 text-gray-900" : "text-gray-700"}
         >
           {chunk.text}
         </span>
