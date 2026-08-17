@@ -53,15 +53,20 @@ export function ReadingPage() {
     [chunks],
   );
 
-  // Estimate active chunk index from playback position. With the current
-  // "synthesize all then play" approach, we distribute duration evenly across
-  // chunks. #10 (streaming queue) will track this precisely per chunk.
+  // Track active chunk index from playback position using real per-chunk
+  // durations (not an even split — chunks vary in length, so an even split
+  // makes the highlight race through short chunks and lag on long ones).
+  // #10 (streaming queue) will track this precisely per chunk at the source.
   const activeIndex = useMemo(() => {
     if (tts.status !== "playing" && tts.status !== "paused") return 0;
-    if (tts.duration <= 0 || chunks.length === 0) return 0;
-    const fraction = tts.currentPosition / tts.duration;
-    return Math.min(Math.floor(fraction * chunks.length), chunks.length - 1);
-  }, [tts.status, tts.currentPosition, tts.duration, chunks.length]);
+    if (tts.chunkDurations.length === 0) return 0;
+    let elapsed = 0;
+    for (let i = 0; i < tts.chunkDurations.length; i++) {
+      elapsed += tts.chunkDurations[i];
+      if (tts.currentPosition < elapsed) return i;
+    }
+    return tts.chunkDurations.length - 1;
+  }, [tts.status, tts.currentPosition, tts.chunkDurations]);
 
   // When chunks load and TTS is idle, synthesize them.
   const handleRead = () => {

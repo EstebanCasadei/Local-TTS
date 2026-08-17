@@ -27,6 +27,9 @@ export interface TtsState {
   isPlaying: boolean;
   currentPosition: number; // seconds
   duration: number; // seconds, estimated
+  // Per-chunk durations in seconds — so the UI can track which chunk is active
+  // based on cumulative real durations, not an even split (chunks vary in length).
+  chunkDurations: number[];
   error: string | null;
 }
 
@@ -51,6 +54,7 @@ const IDLE_STATE: TtsState = {
   isPlaying: false,
   currentPosition: 0,
   duration: 0,
+  chunkDurations: [],
   error: null,
 };
 
@@ -114,6 +118,7 @@ export function useTts(): UseTts {
         isPlaying: false,
         currentPosition: 0,
         duration: 0,
+        chunkDurations: [],
       });
 
       try {
@@ -138,6 +143,7 @@ export function useTts(): UseTts {
                 ...prev,
                 chunksDone: audioBuffersRef.current.length,
                 duration: audioBuffersRef.current.reduce((acc, b) => acc + b.duration, 0),
+                chunkDurations: audioBuffersRef.current.map((b) => b.duration),
               }));
             });
             decodePromisesRef.current.push(p);
@@ -247,6 +253,7 @@ export function useTts(): UseTts {
       isPlaying: false,
       currentPosition: 0,
       duration: 0,
+      chunkDurations: [],
     });
   }, [update]);
 

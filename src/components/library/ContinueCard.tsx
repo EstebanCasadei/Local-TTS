@@ -5,7 +5,7 @@ import { BookMeta, PlayIcon, SyncBadge } from "./shared.tsx";
 
 // ponytail: progreso maquetado con valores fijos — `Progress` no guarda
 // duración y el audio es #6. Conectar cuando exista.
-const PLACEHOLDER = { percent: 45, elapsed: "12:45", total: "28:30" };
+// TODO(#16): wire real progress from the Progress record (chunkActualId + offset).
 
 export function ContinueCard({ book }: { book: Book }) {
   return (
@@ -23,23 +23,18 @@ export function ContinueCard({ book }: { book: Book }) {
 
       <div className="flex flex-col gap-2">
         <div className="font-label flex justify-between text-text-primary">
-          <span>{PLACEHOLDER.percent}% completado</span>
-          <span>
-            {PLACEHOLDER.elapsed} / {PLACEHOLDER.total}
-          </span>
+          <span>0% completado</span>
+          <span>00:00 / 00:00</span>
         </div>
         <div
           aria-label="Progreso de escucha"
           aria-valuemax={100}
           aria-valuemin={0}
-          aria-valuenow={PLACEHOLDER.percent}
+          aria-valuenow={0}
           className="h-1.5 overflow-hidden rounded-full bg-text-primary"
           role="progressbar"
         >
-          <div
-            className="h-full rounded-full bg-action-primary"
-            style={{ width: `${PLACEHOLDER.percent}%` }}
-          />
+          <div className="h-full rounded-full bg-action-primary" style={{ width: "0%" }} />
         </div>
       </div>
 
