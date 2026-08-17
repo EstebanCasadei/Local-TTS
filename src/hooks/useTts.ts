@@ -100,14 +100,16 @@ export function useTts(): UseTts {
 
       // Cancel any existing playback.
       sourceNodeRef.current?.stop();
-      audioBuffersRef.current = [];
-      decodePromisesRef.current = [];
 
       const chunks = chunkText(text);
       if (chunks.length === 0) {
         update({ status: "error", error: "No hay texto para sintetizar." });
         return;
       }
+
+      // Pre-allocate to the chunk count so onChunk can place by index.
+      audioBuffersRef.current = new Array(chunks.length);
+      decodePromisesRef.current = [];
 
       update({
         status: "downloading-voice",
@@ -135,18 +137,20 @@ export function useTts(): UseTts {
             onVoiceReady: () => {
               update({ status: "synthesizing", downloadProgress: null });
             },
-            onChunk: ({ wav }) => {
-              // Track the decode promise so we can await all of them before
-              // playing — otherwise the last few chunks' AudioBuffers may not
-              // be in the array when play() concatenates them, cutting off the
-              // end of the audio.
+            onChunk: ({ wav, index }) => {
+              // Place each buffer at its correct index — not push. With cached
+              // chunks, all WAVs arrive nearly simultaneously, so decodeWav
+              // resolves in non-deterministic order. Pushing would scramble the
+              // audio (chunk 1 before chunk 0). Using the index guarantees the
+              // concatenated buffer plays in the right order.
               const p = decodeWav(wav).then((buffer) => {
-                audioBuffersRef.current.push(buffer);
+                audioBuffersRef.current[index] = buffer;
+                const filled = audioBuffersRef.current.filter(Boolean);
                 setState((prev) => ({
                   ...prev,
-                  chunksDone: audioBuffersRef.current.length,
-                  duration: audioBuffersRef.current.reduce((acc, b) => acc + b.duration, 0),
-                  chunkDurations: audioBuffersRef.current.map((b) => b.duration),
+                  chunksDone: filled.length,
+                  duration: filled.reduce((acc, b) => acc + b.duration, 0),
+                  chunkDurations: filled.map((b) => b.duration),
                 }));
               });
               decodePromisesRef.current.push(p);
@@ -189,7 +193,8 @@ export function useTts(): UseTts {
   );
 
   const play = useCallback(() => {
-    const buffers = audioBuffersRef.current;
+    // Filter out holes (failed chunks leave empty slots in the pre-allocated array).
+    const buffers = audioBuffersRef.current.filter(Boolean);
     if (buffers.length === 0) return;
 
     const ctx = getAudioContext();
