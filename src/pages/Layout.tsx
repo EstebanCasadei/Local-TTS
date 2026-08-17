@@ -5,7 +5,9 @@ export function Layout() {
   return (
     <div className="flex min-h-screen">
       <Aside />
-      <Outlet />
+      <div className="flex w-full md:pl-[18rem]">
+        <Outlet />
+      </div>
     </div>
   );
 }

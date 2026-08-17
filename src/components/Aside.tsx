@@ -48,7 +48,7 @@ export function Aside() {
         onClick={() => setOpen(false)}
       />
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[15rem] md:w-[18rem] flex-col border-r border-border-primary bg-bg-secondary p-4 font-primary text-text-primary transition-transform duration-200 md:static md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[15rem] md:w-[18rem] flex-col border-r border-border-primary bg-bg-secondary p-4 font-primary text-text-primary transition-transform duration-200 md:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >

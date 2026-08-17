@@ -107,7 +107,7 @@ export function ReadingPage() {
             <div className="mx-auto max-w-[1100px] w-full">
               <ReadingHeader {...BOOK} chapter={CHAPTER} showChapter={expanded} />
 
-              <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="min-h-0 flex-1 overflow-y-auto mt-4">
                 <KaraokeText activeIndex={0} chunks={EXAMPLE_CHUNKS} />
               </div>
             </div>
