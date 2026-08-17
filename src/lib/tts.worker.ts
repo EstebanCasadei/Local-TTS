@@ -1,22 +1,28 @@
 // Piper TTS worker — runs WASM inference off the main thread so the UI never
-// freezes. Minimal tracer-bullet scope: download voice → synthesize chunks →
-// return WAVs. No tone classifier (#12), no OPFS persistence (#6) — those plug
-// in later via extension points.
+// freezes. Synthesizes chunks and caches WAVs in OPFS (#6) so previously
+// generated audio plays instantly on replay.
 //
 // Protocol (main → worker):
 //   { type: "download",   id, voiceId }
-//   { type: "synthesize", id, voiceId, chunks: string[] }
+//   { type: "synthesize", id, voiceId, chunks: string[], bookId?, chunkIds? }
 //   { type: "cancel" }
+//
+// When bookId + chunkIds are provided, the worker:
+//   1. Computes textHash for each chunk
+//   2. Checks OPFS for cached audio (skip synthesis if hit + hash matches)
+//   3. Synthesizes only uncached chunks
+//   4. Saves new WAVs to OPFS for next time
 //
 // Protocol (worker → main):
 //   { type: "download-progress", id, loaded, total }
 //   { type: "download-done",     id }
 //   { type: "voice-ready",       id, voiceId }
-//   { type: "chunk-done",        id, index, total, wav: ArrayBuffer }
+//   { type: "chunk-done",        id, index, total, wav: ArrayBuffer, cached: boolean }
 //   { type: "chunk-failed",      id, index, total, message }
 //   { type: "synthesize-done",   id, ok, failed: number[], cancelled }
 //   { type: "error",             id, message }
 import * as tts from "@mintplex-labs/piper-tts-web";
+import { audioLocal, readChunk, saveChunk, textHash } from "./audioStore";
 
 // In a worker, self is DedicatedWorkerGlobalScope with postMessage(message, transfer?).
 // The tsconfig includes DOM (not WebWorker) for the app, so we cast to the worker
@@ -96,15 +102,59 @@ async function handleDownload(id: number, voiceId: string): Promise<void> {
   post({ type: "download-done", id });
 }
 
-async function handleSynthesize(id: number, voiceId: string, chunks: string[]): Promise<void> {
+async function handleSynthesize(
+  id: number,
+  voiceId: string,
+  chunks: string[],
+  bookId?: string,
+  chunkIds?: string[],
+): Promise<void> {
   cancelled = false;
   const failed: number[] = [];
+
+  // When bookId + chunkIds are provided, check OPFS cache before synthesizing.
+  // Chunks that have cached audio with a matching hash are loaded from disk
+  // instead of running Piper — instant replay on subsequent listens.
+  const useCache = bookId && chunkIds && chunkIds.length === chunks.length;
+  const cachedAudio = useCache ? await audioLocal(bookId!) : new Map<string, string>();
+  const hashes: (string | null)[] = useCache
+    ? await Promise.all(chunks.map((text) => textHash(text)))
+    : chunks.map(() => null);
+
+  // Determine which chunks need synthesis vs. are cached.
+  const needSynthesis: number[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    if (cancelled) break;
+    const hash = hashes[i];
+    const chunkId = chunkIds?.[i];
+    if (useCache && hash && chunkId && cachedAudio.get(chunkId) === hash) {
+      // Cache hit — load from OPFS, no Piper inference needed.
+      const wav = await readChunk(bookId!, chunkId, hash);
+      if (wav) {
+        post({ type: "chunk-done", id, index: i, total: chunks.length, wav, cached: true }, [wav]);
+        continue;
+      }
+      // File was listed but couldn't be read (race condition?) — fall through to synthesis.
+    }
+    needSynthesis.push(i);
+  }
+
+  if (cancelled) {
+    post({ type: "synthesize-done", id, ok: 0, failed, cancelled });
+    return;
+  }
+
+  // If everything was cached, we're done — no need to load the Piper model.
+  if (needSynthesis.length === 0) {
+    post({ type: "synthesize-done", id, ok: chunks.length, failed, cancelled });
+    return;
+  }
 
   // Load the model once before the loop so the first chunk's progress is real.
   await getSession(voiceId);
   post({ type: "voice-ready", id, voiceId });
 
-  for (let index = 0; index < chunks.length; index++) {
+  for (const index of needSynthesis) {
     if (cancelled) break;
 
     let lastError: Error | null = null;
@@ -113,8 +163,16 @@ async function handleSynthesize(id: number, voiceId: string, chunks: string[]): 
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const wav = await synthesizeChunk(voiceId, chunks[index]);
+
+        // Save to OPFS cache if we have a bookId + chunkId + hash.
+        if (useCache && hashes[index] && chunkIds?.[index]) {
+          await saveChunk(bookId!, chunkIds[index], hashes[index]!, wav).catch((err) => {
+            console.warn(`[tts-worker] failed to cache chunk ${index + 1}:`, err);
+          });
+        }
+
         // Transfer the buffer (postMessage detaches it) to avoid copying.
-        post({ type: "chunk-done", id, index, total: chunks.length, wav }, [wav]);
+        post({ type: "chunk-done", id, index, total: chunks.length, wav, cached: false }, [wav]);
         lastError = null;
         break;
       } catch (err) {
@@ -147,7 +205,7 @@ async function handleSynthesize(id: number, voiceId: string, chunks: string[]): 
 }
 
 self.addEventListener("message", async (event: MessageEvent) => {
-  const { type, id, voiceId, chunks } = event.data ?? {};
+  const { type, id, voiceId, chunks, bookId, chunkIds } = event.data ?? {};
 
   if (type === "cancel") {
     cancelled = true;
@@ -157,7 +215,7 @@ self.addEventListener("message", async (event: MessageEvent) => {
   activeId = id;
   try {
     if (type === "download") await handleDownload(id, voiceId);
-    else if (type === "synthesize") await handleSynthesize(id, voiceId, chunks);
+    else if (type === "synthesize") await handleSynthesize(id, voiceId, chunks, bookId, chunkIds);
     else throw new Error(`Unknown message type: ${type}`);
   } catch (err) {
     console.error("[tts-worker]", err);

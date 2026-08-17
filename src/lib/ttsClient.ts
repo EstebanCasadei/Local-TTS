@@ -29,6 +29,7 @@ export interface ChunkDone {
   index: number;
   total: number;
   wav: ArrayBuffer;
+  cached: boolean;
 }
 
 export interface ChunkFailed {
@@ -119,40 +120,49 @@ export class TtsClient {
 
   /**
    * Synthesizes chunks sequentially in the worker. Each WAV arrives as soon as
-   * it's ready, without waiting for the rest.
+   * it's ready, without waiting for the rest. When bookId + chunkIds are
+   * provided, the worker checks the OPFS cache first and only synthesizes
+   * uncached chunks — instant replay for previously generated audio.
    */
   synthesize(
     voiceId: string,
     chunks: string[],
     callbacks: SynthesizeCallbacks = {},
+    bookId?: string,
+    chunkIds?: string[],
   ): Promise<SynthesizeResult> {
-    return this.request({ type: "synthesize", voiceId, chunks }, ["synthesize-done"], (data) => {
-      switch (data.type) {
-        case "download-progress":
-          callbacks.onVoiceProgress?.({
-            loaded: data.loaded as number,
-            total: data.total as number,
-          });
-          break;
-        case "voice-ready":
-          callbacks.onVoiceReady?.();
-          break;
-        case "chunk-done":
-          callbacks.onChunk?.({
-            index: data.index as number,
-            total: data.total as number,
-            wav: data.wav as ArrayBuffer,
-          });
-          break;
-        case "chunk-failed":
-          callbacks.onChunkFailed?.({
-            index: data.index as number,
-            total: data.total as number,
-            message: data.message as string,
-          });
-          break;
-      }
-    }).then((data) => ({
+    return this.request(
+      { type: "synthesize", voiceId, chunks, bookId, chunkIds },
+      ["synthesize-done"],
+      (data) => {
+        switch (data.type) {
+          case "download-progress":
+            callbacks.onVoiceProgress?.({
+              loaded: data.loaded as number,
+              total: data.total as number,
+            });
+            break;
+          case "voice-ready":
+            callbacks.onVoiceReady?.();
+            break;
+          case "chunk-done":
+            callbacks.onChunk?.({
+              index: data.index as number,
+              total: data.total as number,
+              wav: data.wav as ArrayBuffer,
+              cached: data.cached as boolean,
+            });
+            break;
+          case "chunk-failed":
+            callbacks.onChunkFailed?.({
+              index: data.index as number,
+              total: data.total as number,
+              message: data.message as string,
+            });
+            break;
+        }
+      },
+    ).then((data) => ({
       ok: data.ok as number,
       failed: data.failed as number[],
       cancelled: data.cancelled as boolean,

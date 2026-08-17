@@ -35,7 +35,7 @@ export interface TtsState {
 
 export interface UseTts extends TtsState {
   setVoice: (voiceId: string) => void;
-  synthesize: (text: string) => Promise<void>;
+  synthesize: (text: string, bookId?: string, chunkIds?: string[]) => Promise<void>;
   play: () => void;
   pause: () => void;
   cancel: () => void;
@@ -94,7 +94,7 @@ export function useTts(): UseTts {
   }, []);
 
   const synthesize = useCallback(
-    async (text: string) => {
+    async (text: string, bookId?: string, chunkIds?: string[]) => {
       const client = clientRef.current;
       if (!client) return;
 
@@ -122,36 +122,42 @@ export function useTts(): UseTts {
       });
 
       try {
-        const result = await client.synthesize(state.voiceId, chunks, {
-          onVoiceProgress: (p: DownloadProgress) => {
-            update({
-              status: "downloading-voice",
-              downloadProgress: p.total > 0 ? p.loaded / p.total : null,
-            });
+        const result = await client.synthesize(
+          state.voiceId,
+          chunks,
+          {
+            onVoiceProgress: (p: DownloadProgress) => {
+              update({
+                status: "downloading-voice",
+                downloadProgress: p.total > 0 ? p.loaded / p.total : null,
+              });
+            },
+            onVoiceReady: () => {
+              update({ status: "synthesizing", downloadProgress: null });
+            },
+            onChunk: ({ wav }) => {
+              // Track the decode promise so we can await all of them before
+              // playing — otherwise the last few chunks' AudioBuffers may not
+              // be in the array when play() concatenates them, cutting off the
+              // end of the audio.
+              const p = decodeWav(wav).then((buffer) => {
+                audioBuffersRef.current.push(buffer);
+                setState((prev) => ({
+                  ...prev,
+                  chunksDone: audioBuffersRef.current.length,
+                  duration: audioBuffersRef.current.reduce((acc, b) => acc + b.duration, 0),
+                  chunkDurations: audioBuffersRef.current.map((b) => b.duration),
+                }));
+              });
+              decodePromisesRef.current.push(p);
+            },
+            onChunkFailed: ({ index, message }) => {
+              console.warn(`[useTts] chunk ${index + 1} failed:`, message);
+            },
           },
-          onVoiceReady: () => {
-            update({ status: "synthesizing", downloadProgress: null });
-          },
-          onChunk: ({ wav }) => {
-            // Track the decode promise so we can await all of them before
-            // playing — otherwise the last few chunks' AudioBuffers may not
-            // be in the array when play() concatenates them, cutting off the
-            // end of the audio.
-            const p = decodeWav(wav).then((buffer) => {
-              audioBuffersRef.current.push(buffer);
-              setState((prev) => ({
-                ...prev,
-                chunksDone: audioBuffersRef.current.length,
-                duration: audioBuffersRef.current.reduce((acc, b) => acc + b.duration, 0),
-                chunkDurations: audioBuffersRef.current.map((b) => b.duration),
-              }));
-            });
-            decodePromisesRef.current.push(p);
-          },
-          onChunkFailed: ({ index, message }) => {
-            console.warn(`[useTts] chunk ${index + 1} failed:`, message);
-          },
-        });
+          bookId,
+          chunkIds,
+        );
 
         if (result.cancelled) {
           update({ status: "idle" });

@@ -69,11 +69,14 @@ export function ReadingPage() {
   }, [tts.status, tts.currentPosition, tts.chunkDurations]);
 
   // When chunks load and TTS is idle, synthesize them.
+  // Pass bookId + chunkIds so the worker can check the OPFS cache and skip
+  // synthesis for already-generated audio.
   const handleRead = () => {
     if (chunks.length === 0) return;
     const allText = chunks.map((c) => c.texto).join("\n");
+    const chunkIds = chunks.map((c) => c.id);
     tts.reset();
-    void tts.synthesize(allText);
+    void tts.synthesize(allText, bookId ?? undefined, chunkIds);
   };
 
   const menuItems: MenuItem[] = [
