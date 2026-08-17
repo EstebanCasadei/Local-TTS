@@ -8,12 +8,13 @@ import VolumeIcon from "../../icons/VolumeIcon.svg?react";
 import { VoiceSphere } from "./VoiceSphere.tsx";
 
 // ponytail: progreso maquetado — los tiempos reales llegan con el audio (#6).
-const PLACEHOLDER = { elapsed: "02:14", total: "12:00", percent: 22 };
-
 type PlaybackControlsProps = {
   isPlaying: boolean;
   speed: number;
   voiceName: string;
+  position?: string;
+  duration?: string;
+  progressPercent?: number;
   onToggle: () => void;
   onSpeedChange: (speed: number) => void;
   onOpenVoices: () => void;
@@ -23,6 +24,9 @@ export function PlaybackControls({
   isPlaying,
   speed,
   voiceName,
+  position = "00:00",
+  duration = "00:00",
+  progressPercent = 0,
   onToggle,
   onSpeedChange,
   onOpenVoices,
@@ -33,21 +37,21 @@ export function PlaybackControls({
     <div className="flex flex-col gap-3 border-t border-border-primary bg-bg-tertiary px-4 py-3">
       <div className="mx-auto max-w-[1100px] w-full">
         <div className="flex items-center gap-3 mb-2">
-          <span className="font-label shrink-0 text-text-primary">{PLACEHOLDER.elapsed}</span>
+          <span className="font-label shrink-0 text-text-primary">{position}</span>
           <div
             aria-label="Progreso de la lectura"
             aria-valuemax={100}
             aria-valuemin={0}
-            aria-valuenow={PLACEHOLDER.percent}
+            aria-valuenow={progressPercent}
             className="h-1.5 flex-1 overflow-hidden rounded-full bg-black"
             role="progressbar"
           >
             <div
               className="h-full rounded-full bg-action-primary"
-              style={{ width: `${PLACEHOLDER.percent}%` }}
+              style={{ width: `${progressPercent}%` }}
             />
           </div>
-          <span className="font-label shrink-0 text-text-primary">{PLACEHOLDER.total}</span>
+          <span className="font-label shrink-0 text-text-primary">{duration}</span>
         </div>
 
         <div className="grid grid-cols-1 items-center gap-2 md:grid-cols-[1fr_auto_1fr]">

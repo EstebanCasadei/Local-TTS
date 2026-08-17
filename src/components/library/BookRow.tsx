@@ -15,14 +15,14 @@ export function BookRow({ book }: { book: Book }) {
       <Link
         aria-label={`Reproducir ${book.titulo}`}
         className="hidden size-9 shrink-0 place-items-center rounded-[8px] bg-text-primary text-bg-primary transition duration-150 hover:bg-text-primary-hover active:scale-95 md:grid"
-        to="/reading"
+        to={`/reading?book=${book.id}`}
       >
         <PlayIcon />
       </Link>
 
       <Link
         className="min-w-0 flex-1 transition duration-150 hover:text-text-primary-hover"
-        to="/reading"
+        to={`/reading?book=${book.id}`}
       >
         <p className="font-p truncate">{book.titulo}</p>
         <BookMeta book={book} />

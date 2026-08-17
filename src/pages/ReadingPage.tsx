@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import type { MenuItem } from "../components/library/BookMenu.tsx";
 import { BookMenu } from "../components/library";
 import {
@@ -9,40 +10,14 @@ import {
   VoiceSphere,
   VoicesPanel,
 } from "../components/reading";
-import { usePlayback } from "../hooks/usePlayback.ts";
+import { useBook } from "../hooks/useBook.ts";
+import { useTts } from "../hooks/useTts.ts";
+import { getBookRepository } from "../lib/books";
 import BookmarkIcon from "../icons/BookmarkIcon.svg?react";
 import ChevronUpIcon from "../icons/ChevronUpIcon.svg?react";
 import MusicIcon from "../icons/MusicIcon.svg?react";
 import SleepIcon from "../icons/SleepIcon.svg?react";
 import type { KaraokeChunk } from "../types/reading.ts";
-
-// ponytail: todo el contenido es placeholder hasta que existan la extracción
-// (#7/#8/#9) y el audio (#6).
-const BOOK = {
-  title: "AI Design - Test book",
-  format: "PDF",
-  estimate: "Est. 12 min",
-};
-const CHAPTER = "The Future of AI Design";
-const VOICE = { id: "daniela-ar", name: "Daniela" };
-
-const EXAMPLE_CHUNKS: KaraokeChunk[] = [
-  {
-    text: "Consider the concept of the ‘Semantic Shell’. ",
-    start: 0,
-    end: 500,
-  },
-  {
-    text: "A rigid structure, a fixed map demanding the user to learn its cartography. In an AI-driven context, the shell becomes fluid. It understands intent. If a user is immersed in a complex analytical task, the system intelligently suppresses global navigation, minimizing cognitive load and prioritizing the immediate canvas. ",
-    start: 500,
-    end: 1000,
-  },
-  {
-    text: "Furthermore, the aesthetics of AI tooling must evolve. For too long, powerful tools have been burdened by cluttered, utilitarian interfaces. The next generation demands a synthesis of high performance and executive polish. We must embrace deep, multidimensional surfaces—utilizing precise tonal layering and structural minimalism—to create environments that foster focus and clarity during prolonged, intensive sessions.",
-    start: 1000,
-    end: 1500,
-  },
-];
 
 /** Alto de la pestaña con la flecha: es lo único que asoma con el panel cerrado. */
 const HANDLE_HEIGHT = "2.25rem";
@@ -51,9 +26,50 @@ const MENU_BUTTON =
   "grid size-10 cursor-pointer list-none place-items-center rounded-full shadow-large bg-bg-secondary text-text-primary border border-border-primary transition duration-150 hover:bg-bg-tertiary active:scale-95";
 
 export function ReadingPage() {
-  const { isPlaying, setSpeed, speed, togglePlay } = usePlayback();
+  const [searchParams] = useSearchParams();
+  const bookId = searchParams.get("book");
+
+  const { chunks, loading } = useBook(bookId);
+  const tts = useTts();
   const [panel, setPanel] = useState<"voices" | "audio" | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [bookTitle, setBookTitle] = useState<string>("");
+
+  // Load book metadata for the header
+  useEffect(() => {
+    if (!bookId) return;
+    getBookRepository()
+      .getBook(bookId)
+      .then((book) => {
+        if (book) setBookTitle(book.titulo);
+      });
+  }, [bookId]);
+
+  // Convert repository Chunk[] to KaraokeChunk[] for the KaraokeText component.
+  // For now all chunks share the same time range; real timing comes with #10
+  // (streaming playback queue). The active index is derived from TTS progress.
+  const karaokeChunks: KaraokeChunk[] = useMemo(
+    () => chunks.map((c) => ({ text: c.texto + " ", start: 0, end: 0 })),
+    [chunks],
+  );
+
+  // Estimate active chunk index from playback position. With the current
+  // "synthesize all then play" approach, we distribute duration evenly across
+  // chunks. #10 (streaming queue) will track this precisely per chunk.
+  const activeIndex = useMemo(() => {
+    if (tts.status !== "playing" && tts.status !== "paused") return 0;
+    if (tts.duration <= 0 || chunks.length === 0) return 0;
+    const fraction = tts.currentPosition / tts.duration;
+    return Math.min(Math.floor(fraction * chunks.length), chunks.length - 1);
+  }, [tts.status, tts.currentPosition, tts.duration, chunks.length]);
+
+  // When chunks load and TTS is idle, synthesize them.
+  const handleRead = () => {
+    if (chunks.length === 0) return;
+    const allText = chunks.map((c) => c.texto).join("\n");
+    tts.reset();
+    void tts.synthesize(allText);
+  };
 
   const menuItems: MenuItem[] = [
     { label: "Marcadores", icon: BookmarkIcon },
@@ -65,6 +81,37 @@ export function ReadingPage() {
     { label: "Programar descanso", icon: SleepIcon },
   ];
 
+  // No book selected — show empty state
+  if (!bookId) {
+    return (
+      <main className="bg-bg-tertiary flex min-h-screen min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
+        <p className="font-h2 text-text-secondary">
+          No se seleccionó ningún documento. Vuelve a la biblioteca para elegir uno.
+        </p>
+      </main>
+    );
+  }
+
+  if (loading) {
+    return (
+      <main className="bg-bg-tertiary flex min-h-screen min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
+        <p className="font-h2 text-text-secondary">Cargando documento…</p>
+      </main>
+    );
+  }
+
+  if (chunks.length === 0) {
+    return (
+      <main className="bg-bg-tertiary flex min-h-screen min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
+        <p className="font-h2 text-text-secondary">Este documento no tiene contenido para leer.</p>
+      </main>
+    );
+  }
+
+  const format = chunks[0]?.capituloId != null ? "TXT" : "TXT";
+  const estimate = `Est. ${Math.ceil(chunks.length * 0.5)} min`;
+  const voiceName = tts.voices.find((v) => v.id === tts.voiceId)?.label ?? "Voz";
+
   return (
     <main className="flex min-h-screen min-w-0 flex-1 flex-col bg-bg-tertiary">
       {/* Menú fijo, visible incluso cuando sube el panel de texto. */}
@@ -75,7 +122,7 @@ export function ReadingPage() {
       {/* Escenario: título + esfera detrás; el panel de texto sube y los tapa. */}
       <div className="relative min-h-[26rem] flex-1 overflow-hidden">
         <div className="absolute inset-0 flex flex-col p-4 pt-16 md:p-8 md:pt-8">
-          <ReadingHeader {...BOOK} />
+          <ReadingHeader title={bookTitle || "Documento"} format={format} estimate={estimate} />
           <div className="grid flex-1 place-items-center py-4">
             <VoiceSphere />
           </div>
@@ -105,26 +152,75 @@ export function ReadingPage() {
             inert={!expanded}
           >
             <div className="mx-auto max-w-[1100px] w-full">
-              <ReadingHeader {...BOOK} chapter={CHAPTER} showChapter={expanded} />
+              <ReadingHeader
+                chapter="Contenido"
+                estimate={estimate}
+                format={format}
+                showChapter={expanded}
+                title={bookTitle || "Documento"}
+              />
 
               <div className="min-h-0 flex-1 overflow-y-auto mt-4">
-                <KaraokeText activeIndex={0} chunks={EXAMPLE_CHUNKS} />
+                <KaraokeText activeIndex={activeIndex} chunks={karaokeChunks} />
               </div>
             </div>
           </section>
         </div>
       </div>
 
+      {/* TTS synthesis progress overlay */}
+      {(tts.status === "downloading-voice" || tts.status === "synthesizing") && (
+        <div className="bg-bg-secondary border-t border-border-primary px-4 py-2 text-center">
+          <p className="font-p text-text-secondary">
+            {tts.status === "downloading-voice"
+              ? `Descargando voz… ${tts.downloadProgress != null ? `${Math.round(tts.downloadProgress * 100)}%` : ""}`
+              : `Sintetizando… ${tts.chunksDone}/${tts.chunksTotal}`}
+          </p>
+        </div>
+      )}
+
+      {/* TTS error */}
+      {tts.status === "error" && (
+        <div className="bg-action-error/10 border-t border-action-error px-4 py-2 text-center">
+          <p className="font-p text-action-error">{tts.error}</p>
+          <button
+            className="font-p mt-1 text-action-error underline"
+            onClick={tts.reset}
+            type="button"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+
       <PlaybackControls
-        isPlaying={isPlaying}
+        duration={tts.formatTotal()}
+        isPlaying={tts.status === "playing"}
         onOpenVoices={() => setPanel("voices")}
-        onSpeedChange={setSpeed}
-        onToggle={togglePlay}
-        speed={speed}
-        voiceName={VOICE.name}
+        onSpeedChange={(s) => {
+          // Speed control will work with #10 (streaming queue). For now it's UI-only.
+          void s;
+        }}
+        onToggle={() => {
+          if (tts.status === "idle" || tts.status === "error") {
+            handleRead();
+          } else if (tts.status === "playing") {
+            tts.pause();
+          } else if (tts.status === "paused" || tts.status === "ready") {
+            tts.play();
+          }
+        }}
+        position={tts.formatPosition()}
+        progressPercent={tts.duration > 0 ? (tts.currentPosition / tts.duration) * 100 : 0}
+        speed={1}
+        voiceName={voiceName}
       />
 
-      <VoicesPanel onClose={() => setPanel(null)} open={panel === "voices"} selectedId={VOICE.id} />
+      <VoicesPanel
+        onClose={() => setPanel(null)}
+        open={panel === "voices"}
+        selectedId={tts.voiceId}
+      />
       <AudioPanel onClose={() => setPanel(null)} open={panel === "audio"} />
     </main>
   );

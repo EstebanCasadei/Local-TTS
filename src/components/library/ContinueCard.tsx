@@ -13,7 +13,7 @@ export function ContinueCard({ book }: { book: Book }) {
       <div className="flex items-start justify-between gap-2">
         <Link
           className="min-w-0 transition duration-150 hover:text-text-primary-hover"
-          to="/reading"
+          to={`/reading?book=${book.id}`}
         >
           <h3 className="font-h3 font-semibold">{book.titulo}</h3>
           <BookMeta book={book} />
@@ -46,7 +46,7 @@ export function ContinueCard({ book }: { book: Book }) {
       <div className="flex items-center justify-between gap-3">
         <Link
           className="font-p flex w-fit items-center gap-2 rounded-[8px] bg-text-primary px-4 py-2 font-bold text-bg-primary transition duration-150 hover:bg-text-primary-hover active:scale-95"
-          to="/reading"
+          to={`/reading?book=${book.id}`}
         >
           <PlayIcon />
           Reproducir

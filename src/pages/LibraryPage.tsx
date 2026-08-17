@@ -1,9 +1,17 @@
 import { useRef, useState } from "react";
 import { BookRow, ContinueCard, SearchIcon } from "../components/library";
 import { useLibrary } from "../hooks/useLibrary.ts";
+import { extractDocument, ACCEPT_ATTRIBUTE } from "../lib/extract";
+import { ERROR_MESSAGES, ExtractionError } from "../lib/extract/types";
+import { chunkText } from "../lib/chunker";
+import { getBookRepository } from "../lib/books";
+import type { Book, Chunk } from "../types/book.ts";
 import UploadIcon from "../icons/UploadIcon.svg?react";
 
-const ACCEPT = ".pdf,.epub,.txt";
+type UploadState =
+  | { status: "idle" }
+  | { status: "extracting"; fileName: string }
+  | { status: "error"; message: string };
 
 export function LibraryPage() {
   const { books, loading } = useLibrary();
@@ -16,15 +24,65 @@ export function LibraryPage() {
     book.titulo.toLowerCase().includes(query.trim().toLowerCase()),
   );
 
-  const onFile = (file: File | undefined) => {
-    // TODO(#7/#8/#9): extract + chunk the document once lib/extract lands.
-    if (file) console.log("archivo seleccionado", file.name);
+  const [upload, setUpload] = useState<UploadState>({ status: "idle" });
+
+  const onFile = async (file: File | undefined) => {
+    if (!file) return;
+    setUpload({ status: "extracting", fileName: file.name });
+
+    try {
+      // 1. Extract + clean the document text
+      const doc = await extractDocument(file);
+
+      // 2. Chunk all chapter text for TTS
+      const allText = doc.chapters.map((ch) => ch.text).join("\n");
+      const chunkStrings = chunkText(allText);
+      if (chunkStrings.length === 0) {
+        throw new ExtractionError("EMPTY_DOCUMENT" as never, file.name);
+      }
+
+      // 3. Create the Book + Chunk records in the repository
+      const bookId = crypto.randomUUID();
+      const now = Date.now();
+      const book: Book = {
+        id: bookId,
+        titulo: doc.title,
+        autor: doc.meta.author ?? null,
+        formatoOriginal: doc.kind,
+        totalChunks: chunkStrings.length,
+        capitulos: doc.chapters.map((ch) => ({ indice: ch.index, titulo: ch.title })),
+        fechaCreacion: now,
+        fechaModificacion: now,
+      };
+      const chunks: Chunk[] = chunkStrings.map((texto, i) => ({
+        id: `c${String(i).padStart(4, "0")}`,
+        bookId,
+        indiceOrden: i,
+        capituloId: null,
+        texto,
+        voiceId: "es_ES-davefx-medium",
+      }));
+
+      const repo = getBookRepository();
+      await repo.saveBook(book);
+      await repo.saveChunks(bookId, chunks);
+
+      setUpload({ status: "idle" });
+    } catch (err) {
+      const message =
+        err instanceof ExtractionError
+          ? ERROR_MESSAGES[err.code]
+          : err instanceof Error
+            ? err.message
+            : "Error desconocido";
+      setUpload({ status: "error", message });
+    }
   };
 
   return (
     <main className="bg-bg-primary flex min-h-screen min-w-0 flex-1 flex-col overflow-hidden p-4 pt-16 md:p-8 md:pt-8">
       <input
-        accept={ACCEPT}
+        accept={ACCEPT_ATTRIBUTE}
         className="hidden"
         onChange={(event) => onFile(event.target.files?.[0])}
         ref={inputRef}
@@ -74,6 +132,25 @@ export function LibraryPage() {
           <h2 className="font-h2 font-bold">Continúa escuchando</h2>
           <ContinueCard book={current} />
         </section>
+      )}
+
+      {upload.status === "extracting" && (
+        <div className="mt-6 rounded-[8px] border border-border-primary bg-bg-secondary p-4 text-center">
+          <p className="font-p text-text-secondary">Procesando "{upload.fileName}"…</p>
+        </div>
+      )}
+
+      {upload.status === "error" && (
+        <div className="mt-6 rounded-[8px] border border-action-error bg-action-error/10 p-4 text-center">
+          <p className="font-p text-action-error">{upload.message}</p>
+          <button
+            className="font-p mt-2 rounded-[8px] border border-action-error px-3 py-1 text-action-error"
+            onClick={() => setUpload({ status: "idle" })}
+            type="button"
+          >
+            Cerrar
+          </button>
+        </div>
       )}
 
       {rest.length > 0 && (
