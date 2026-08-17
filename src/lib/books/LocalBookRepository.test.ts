@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { LocalBookRepository } from "./LocalBookRepository";
 import type { BookStore } from "./LocalBookRepository";
-import type { Book, Bookmark, Chunk, Progress } from "./types";
+import type { Book, Bookmark, Chunk, Progress } from "../../types/book.ts";
 
 function makeBook(id: string, overrides: Partial<Book> = {}): Book {
   return {

@@ -10,7 +10,7 @@ vi.mock("../firebase", () => ({
 
 import { BookRepositoryFacade } from "./facade";
 import { LocalBookRepository, type BookStore } from "./LocalBookRepository";
-import type { Book } from "./types";
+import type { Book } from "../../types/book.ts";
 
 function makeBook(id: string): Book {
   return {

@@ -118,7 +118,7 @@ stays hidden — but the app still works fully offline.
 
 | File                     | Role                                                                 |
 | ------------------------ | -------------------------------------------------------------------- |
-| `types.ts`               | `User`, `SyncStatus`, `FirstSyncEvent`, `MergeSnapshot`              |
+| `../../types/user.ts`    | `User`, `SyncStatus`, `FirstSyncEvent`, `MergeSnapshot`              |
 | `UserService.ts`         | The public interface + `LocalUserStore` port                         |
 | `LocalUserService.ts`    | Local-first strategy (UUID in IndexedDB, no-op sync)                 |
 | `FirebaseUserService.ts` | Opt-in strategy (anonymous → Google link)                            |

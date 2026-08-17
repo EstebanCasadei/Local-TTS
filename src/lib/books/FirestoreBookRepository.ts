@@ -1,4 +1,4 @@
-import type { Book, Bookmark, Chunk, Progress } from "./types";
+import type { Book, Bookmark, Chunk, Progress } from "../../types/book.ts";
 import type { BookRepository } from "./BookRepository";
 
 // Stub for the Firestore sync strategy. Full implementation is #18's main body

@@ -1,4 +1,4 @@
-import type { Book, Bookmark, Chunk, Progress } from "./types";
+import type { Book, Bookmark, Chunk, Progress } from "../../types/book.ts";
 import type { BookRepository } from "./BookRepository";
 
 // Narrow storage port so LocalBookRepository is unit-testable without IndexedDB

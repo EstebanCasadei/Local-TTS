@@ -1,0 +1,75 @@
+@import url("https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-primary: "Be Vietnam Pro", sans-serif;
+
+  --color-brand-primary: #818cf8;
+  --color-brand-text: #c6c5d5;
+
+  --color-bg-primary: #0b1326;
+  --color-bg-secondary: #171f33;
+  --color-bg-tertiary: #131b2f;
+
+  --color-text-primary: #c6c5d5;
+  --color-text-primary-hover: #a8a6c0;
+  --color-text-secondary: #787887;
+  --color-text-inverse: #252525;
+
+  --color-border-primary: #2d3449;
+
+  --color-action-primary: #4f57ba;
+  --color-action-primary-hover: #3d4294;
+  --color-action-success: #818cf8;
+  --color-action-waiting: #fbbf24;
+  --color-action-error: #f87171;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-primary);
+    background-color: var(--color-bg-tertiary);
+    color: var(--color-text-primary);
+  }
+}
+
+@layer shortcuts {
+  .font-h1 {
+    font-size: clamp(1.5rem, calc(0.91vw + 1.32rem), 2rem);
+    line-height: 1;
+  }
+
+  .font-h2 {
+    font-size: clamp(1.125rem, calc(0.68vw + 0.99rem), 1.5rem);
+  }
+
+  .font-h3 {
+    font-size: clamp(0.9375rem, calc(0.34vw + 0.87rem), 1.125rem);
+  }
+
+  .font-p {
+    font-size: clamp(0.875rem, calc(0.23vw + 0.83rem), 1rem);
+  }
+
+  .font-label {
+    font-size: clamp(0.6875rem, calc(0.11vw + 0.66rem), 0.75rem);
+  }
+
+  .shadow-large {
+    box-shadow:
+      0 4px 8px 0 rgba(0, 0, 0, 0.15),
+      0 8px 24px 0 rgba(0, 0, 0, 0.3);
+  }
+
+  /* Esfera de voz: base azul + luz superior + destello cálido inferior.
+     Escala con el tamaño del elemento porque todo está en %. */
+  .sphere {
+    background:
+      radial-gradient(circle at 32% 78%, rgba(255, 236, 200, 0.85) 0%, transparent 22%),
+      radial-gradient(circle at 30% 22%, #a5c0ff 0%, #6d90f7 38%, #4a63d8 70%, #2b3a8f 100%);
+    box-shadow:
+      inset 0 -8% 16% rgba(255, 255, 255, 0.25),
+      inset 0 6% 14% rgba(0, 0, 0, 0.35),
+      0 0 12% 4% rgba(129, 140, 248, 0.28);
+  }
+}

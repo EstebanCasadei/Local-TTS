@@ -17,6 +17,8 @@ export interface User {
   syncStatus: SyncStatus;
 }
 
+// --- Sync-coordination events (internal to the sync layer, #18) ---
+
 // Fired once when the user opts into sync: #18 backfills local books/chunks/
 // progress (keyed by localUid) into Firestore under firebaseUid.
 export interface FirstSyncEvent {
