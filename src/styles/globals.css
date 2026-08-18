@@ -23,6 +23,8 @@
   --color-action-success: #818cf8;
   --color-action-waiting: #fbbf24;
   --color-action-error: #f87171;
+
+  --color-bg-voicesphere: #0c2666;
 }
 
 @layer base {

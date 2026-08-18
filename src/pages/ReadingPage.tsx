@@ -137,7 +137,7 @@ export function ReadingPage() {
         </div>
 
         <div
-          className="absolute inset-0 flex flex-col transition-transform duration-300 ease-out"
+          className="absolute z-10 inset-0 flex flex-col transition-transform duration-300 ease-out"
           style={{
             transform: expanded ? undefined : `translateY(calc(100% - ${HANDLE_HEIGHT}))`,
           }}

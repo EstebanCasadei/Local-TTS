@@ -14,7 +14,7 @@ export function ReadingHeader({
   showChapter = false,
 }: ReadingHeaderProps) {
   return (
-    <header className="text-center md:text-left border-b border-border-primary pb-4">
+    <header className="text-center md:text-left border-b border-border-primary pb-4 z-10">
       <h1 className="font-h1 font-bold mb-2">{title}</h1>
       {showChapter ? (
         <div className="font-p mt-1 flex flex-col items-center gap-1 text-text-secondary md:flex-row md:items-center md:justify-between md:gap-2">
