@@ -15,6 +15,7 @@ import { useProgress } from "../hooks/useProgress.ts";
 import { useTts } from "../hooks/useTts.ts";
 import { getBookRepository } from "../lib/books";
 import { chunkText } from "../lib/chunker";
+import { formatDuration } from "../lib/audio";
 import BookmarkIcon from "../icons/BookmarkIcon.svg?react";
 import ChevronUpIcon from "../icons/ChevronUpIcon.svg?react";
 import MusicIcon from "../icons/MusicIcon.svg?react";
@@ -137,6 +138,22 @@ export function ReadingPage() {
   const estimate = `Est. ${Math.ceil(chunks.length * 0.5)} min`;
   const voiceName = tts.voices.find((v) => v.id === tts.voiceId)?.label ?? "Voz";
 
+  // When idle with saved progress, show the saved position so the user sees
+  // their progress before clicking play. Once playback starts, the live tts
+  // state takes over.
+  const isIdle = tts.status === "idle" || tts.status === "error" || tts.status === "done";
+  const savedPosition = progress?.offsetSegundos ?? 0;
+  const displayPosition = isIdle && savedPosition > 0 ? savedPosition : tts.currentPosition;
+  const savedChunkIndex = progress
+    ? Math.max(0, parseInt(progress.chunkActualId.replace(/^c/, ""), 10) || 0)
+    : 0;
+  const displayProgressPercent =
+    tts.duration > 0
+      ? (tts.currentPosition / tts.duration) * 100
+      : isIdle && savedPosition > 0 && chunks.length > 0
+        ? (savedChunkIndex / chunks.length) * 100
+        : 0;
+
   return (
     <main className="flex min-h-screen min-w-0 flex-1 flex-col bg-bg-tertiary">
       {/* Menú fijo, visible incluso cuando sube el panel de texto. */}
@@ -191,7 +208,7 @@ export function ReadingPage() {
                   chunks={karaokeChunks}
                   duration={tts.duration}
                   onSeek={tts.seek}
-                  position={tts.currentPosition}
+                  position={displayPosition}
                 />
               </div>
             </div>
@@ -234,7 +251,7 @@ export function ReadingPage() {
         onOpenVoices={() => setPanel("voices")}
         onSpeedChange={tts.setSpeed}
         onToggle={() => {
-          if (tts.status === "idle" || tts.status === "error" || tts.status === "done") {
+          if (isIdle) {
             handleRead();
           } else if (tts.status === "playing" || tts.status === "buffering") {
             tts.pause();
@@ -242,8 +259,8 @@ export function ReadingPage() {
             tts.play();
           }
         }}
-        position={tts.formatPosition()}
-        progressPercent={tts.duration > 0 ? (tts.currentPosition / tts.duration) * 100 : 0}
+        position={formatDuration(displayPosition)}
+        progressPercent={displayProgressPercent}
         speed={tts.speed}
         voiceName={voiceName}
       />
