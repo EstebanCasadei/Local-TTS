@@ -279,8 +279,12 @@ export class PlaybackQueue {
         // Currently playing this entry.
         return entry.offset + localStart + (t - entry.startTime) * this.rate;
       }
-      // Not yet reached this entry — position is at the end of the previous one.
-      break;
+      // Not yet reached this entry — it was just scheduled by pump() with a
+      // small lead time (SCHEDULE_LEAD). Return the position where playback
+      // is about to resume, not 0. Without this, a seek/rate change causes a
+      // one-frame flash to position 0 (start of sentence) before the source
+      // starts playing and position jumps back to the correct value.
+      return entry.offset + localStart;
     }
     // Nothing currently playing — return the end of the last finished entry.
     const lastDone = [...this.scheduled].reverse().find((e) => t >= e.endTime);
