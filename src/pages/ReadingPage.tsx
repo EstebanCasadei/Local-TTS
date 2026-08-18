@@ -147,6 +147,15 @@ export function ReadingPage() {
   const savedChunkIndex = progress
     ? Math.max(0, parseInt(progress.chunkActualId.replace(/^c/, ""), 10) || 0)
     : 0;
+
+  // When idle with no audio loaded, tts.duration is 0. The karaoke can't
+  // compute word timings without a duration, so provide an estimate based on
+  // chunk count (~15s per chunk is typical for Piper at 220 chars). This lets
+  // the karaoke highlight roughly the right word before audio loads.
+  const ESTIMATED_SECONDS_PER_CHUNK = 15;
+  const estimatedDuration = chunks.length * ESTIMATED_SECONDS_PER_CHUNK;
+  const displayDuration = isIdle && tts.duration === 0 ? estimatedDuration : tts.duration;
+
   const displayProgressPercent =
     tts.duration > 0
       ? (tts.currentPosition / tts.duration) * 100
@@ -206,7 +215,7 @@ export function ReadingPage() {
                 <KaraokeText
                   chunkStartTimes={tts.chunkStartTimes}
                   chunks={karaokeChunks}
-                  duration={tts.duration}
+                  duration={displayDuration}
                   onSeek={tts.seek}
                   position={displayPosition}
                 />
