@@ -34,6 +34,7 @@ export interface PlaybackSnapshot {
   index: number; // currently playing chunk index
   total: number;
   playing: boolean;
+  chunkStartTimes: (number | undefined)[];
 }
 
 export interface PlaybackQueueOptions {
@@ -422,6 +423,7 @@ export class PlaybackQueue {
       index: this.currentIndex,
       total: this.total,
       playing: this.wantPlay,
+      chunkStartTimes: [...this.chunkStartTimes],
     });
   }
 }

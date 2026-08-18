@@ -27,7 +27,9 @@ export interface TtsState {
   isPlaying: boolean;
   currentPosition: number;
   duration: number;
-  activeChunkIndex: number; // currently playing chunk (for karaoke sync)
+  /** Audio synthesis chunks, aligned with chunkStartTimes for karaoke. */
+  synthesisChunks: string[];
+  chunkStartTimes: (number | undefined)[];
   error: string | null;
 }
 
@@ -65,7 +67,8 @@ const IDLE_STATE: TtsState = {
   isPlaying: false,
   currentPosition: 0,
   duration: 0,
-  activeChunkIndex: 0,
+  synthesisChunks: [],
+  chunkStartTimes: [],
   error: null,
 };
 
@@ -139,7 +142,8 @@ export function useTts(): UseTts {
         isPlaying: false,
         currentPosition: 0,
         duration: 0,
-        activeChunkIndex: 0,
+        synthesisChunks: chunks,
+        chunkStartTimes: new Array(chunks.length),
       });
 
       // The queue is created lazily after the first chunk decodes, because
@@ -165,7 +169,7 @@ export function useTts(): UseTts {
               isPlaying: snap.playing,
               currentPosition: snap.position,
               duration: snap.duration,
-              activeChunkIndex: snap.index,
+              chunkStartTimes: snap.chunkStartTimes,
             }));
           },
         });
@@ -277,7 +281,8 @@ export function useTts(): UseTts {
       isPlaying: false,
       currentPosition: 0,
       duration: 0,
-      activeChunkIndex: 0,
+      synthesisChunks: [],
+      chunkStartTimes: [],
     });
   }, [update]);
 

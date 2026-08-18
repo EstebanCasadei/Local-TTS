@@ -17,7 +17,6 @@ import BookmarkIcon from "../icons/BookmarkIcon.svg?react";
 import ChevronUpIcon from "../icons/ChevronUpIcon.svg?react";
 import MusicIcon from "../icons/MusicIcon.svg?react";
 import SleepIcon from "../icons/SleepIcon.svg?react";
-import type { KaraokeChunk } from "../types/reading.ts";
 
 /** Alto de la pestaña con la flecha: es lo único que asoma con el panel cerrado. */
 const HANDLE_HEIGHT = "2.25rem";
@@ -45,21 +44,14 @@ export function ReadingPage() {
       });
   }, [bookId]);
 
-  // Convert repository Chunk[] to KaraokeChunk[] for the KaraokeText component.
-  const karaokeChunks: KaraokeChunk[] = useMemo(
-    () => chunks.map((c) => ({ text: c.texto + " ", start: 0, end: 0 })),
-    [chunks],
-  );
-
-  // The streaming queue reports the exact active chunk index — no estimation.
-  const activeIndex = tts.activeChunkIndex;
+  // Full text of the document, used for both TTS and word-level karaoke.
+  const allText = useMemo(() => chunks.map((c) => c.texto).join("\n"), [chunks]);
 
   // When chunks load and TTS is idle, synthesize them.
   // Pass bookId + chunkIds so the worker can check the OPFS cache and skip
   // synthesis for already-generated audio.
   const handleRead = () => {
     if (chunks.length === 0) return;
-    const allText = chunks.map((c) => c.texto).join("\n");
     const chunkIds = chunks.map((c) => c.id);
     tts.reset();
     void tts.synthesize(allText, bookId ?? undefined, chunkIds);
@@ -154,8 +146,14 @@ export function ReadingPage() {
                 title={bookTitle || "Documento"}
               />
 
-              <div className="min-h-0 flex-1 overflow-y-auto mt-4">
-                <KaraokeText activeIndex={activeIndex} chunks={karaokeChunks} />
+              <div className="min-h-0 flex-1 mt-4">
+                <KaraokeText
+                  chunkStartTimes={tts.chunkStartTimes}
+                  chunks={tts.synthesisChunks.length > 0 ? tts.synthesisChunks : [allText]}
+                  duration={tts.duration}
+                  onSeek={tts.seek}
+                  position={tts.currentPosition}
+                />
               </div>
             </div>
           </section>
