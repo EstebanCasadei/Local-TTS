@@ -18,6 +18,7 @@ export interface TtsState {
   status: TtsStatus;
   voiceId: string;
   voices: typeof VOICES;
+  speed: number; // 0.5–2, applied at playback start
   // Download progress as 0–1 (null when not downloading).
   downloadProgress: number | null;
   // Synthesis progress: chunks done / total.
@@ -35,6 +36,7 @@ export interface TtsState {
 
 export interface UseTts extends TtsState {
   setVoice: (voiceId: string) => void;
+  setSpeed: (speed: number) => void;
   synthesize: (text: string, bookId?: string, chunkIds?: string[]) => Promise<void>;
   play: () => void;
   pause: () => void;
@@ -48,6 +50,7 @@ const IDLE_STATE: TtsState = {
   status: "idle",
   voiceId: VOICES[0].id,
   voices: VOICES,
+  speed: 1,
   downloadProgress: null,
   chunksDone: 0,
   chunksTotal: 0,
@@ -91,6 +94,14 @@ export function useTts(): UseTts {
     sourceNodeRef.current?.stop();
     audioBuffersRef.current = [];
     setState({ ...IDLE_STATE, voiceId });
+  }, []);
+
+  // TODO(#10): Live speed change mid-playback requires re-scheduling the
+  // AudioBufferSourceNode (the streaming queue will handle this). For now,
+  // speed is applied at playback start — changing it while playing takes
+  // effect on the next play/pause-resume cycle.
+  const setSpeed = useCallback((speed: number) => {
+    setState((prev) => ({ ...prev, speed }));
   }, []);
 
   const synthesize = useCallback(
@@ -217,9 +228,16 @@ export function useTts(): UseTts {
     source.buffer = combined;
     source.connect(ctx.destination);
 
+    // Apply playback speed. The AudioContext clock runs at real-time, so
+    // position tracking divides elapsed by speed to get the audio's internal
+    // position. TODO(#10): the streaming queue will handle live speed changes
+    // by re-scheduling; for now this applies at play start.
+    source.playbackRate.value = state.speed;
+
     const offsetSeconds = playOffsetRef.current;
     source.start(0, offsetSeconds);
-    playStartTimeRef.current = ctx.currentTime - offsetSeconds;
+    // Adjust start time so position tracking accounts for speed.
+    playStartTimeRef.current = ctx.currentTime - offsetSeconds / state.speed;
     sourceNodeRef.current = source;
 
     source.onended = () => {
@@ -232,18 +250,19 @@ export function useTts(): UseTts {
     };
 
     update({ status: "playing", isPlaying: true });
-  }, [update]);
+  }, [update, state.speed]);
 
   const pause = useCallback(() => {
     const source = sourceNodeRef.current;
     const ctx = getAudioContext();
     if (!source) return;
 
-    // Calculate how far we've played, then stop.
-    const elapsed = ctx.currentTime - playStartTimeRef.current;
+    // Calculate how far we've played in audio time (real-time / speed), then stop.
+    const elapsedReal = ctx.currentTime - playStartTimeRef.current;
+    const elapsedAudio = elapsedReal * source.playbackRate.value;
     playOffsetRef.current = Math.min(
-      elapsed,
-      audioBuffersRef.current.reduce((a, b) => a + b.duration, 0),
+      elapsedAudio,
+      audioBuffersRef.current.filter(Boolean).reduce((a, b) => a + b.duration, 0),
     );
     source.stop();
     sourceNodeRef.current = null;
@@ -283,19 +302,20 @@ export function useTts(): UseTts {
   );
   const formatTotal = useCallback(() => formatDuration(state.duration), [state.duration]);
 
-  // Track playback position while playing.
+  // Track playback position while playing. Audio position = real-time elapsed * speed.
   useEffect(() => {
     if (state.status !== "playing") return;
     let rafId: number;
     const tick = () => {
       const ctx = getAudioContext();
-      const elapsed = ctx.currentTime - playStartTimeRef.current;
-      setState((prev) => ({ ...prev, currentPosition: Math.min(elapsed, prev.duration) }));
+      const elapsedReal = ctx.currentTime - playStartTimeRef.current;
+      const elapsedAudio = elapsedReal * state.speed;
+      setState((prev) => ({ ...prev, currentPosition: Math.min(elapsedAudio, prev.duration) }));
       rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [state.status]);
+  }, [state.status, state.speed]);
 
   // Keep playRef in sync so synthesize can call play() without a circular dep.
   useEffect(() => {
@@ -305,6 +325,7 @@ export function useTts(): UseTts {
   return {
     ...state,
     setVoice,
+    setSpeed,
     synthesize,
     play,
     pause,

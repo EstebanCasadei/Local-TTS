@@ -205,10 +205,7 @@ export function ReadingPage() {
         duration={tts.formatTotal()}
         isPlaying={tts.status === "playing"}
         onOpenVoices={() => setPanel("voices")}
-        onSpeedChange={(s) => {
-          // Speed control will work with #10 (streaming queue). For now it's UI-only.
-          void s;
-        }}
+        onSpeedChange={tts.setSpeed}
         onToggle={() => {
           if (tts.status === "idle" || tts.status === "error") {
             handleRead();
@@ -220,7 +217,7 @@ export function ReadingPage() {
         }}
         position={tts.formatPosition()}
         progressPercent={tts.duration > 0 ? (tts.currentPosition / tts.duration) * 100 : 0}
-        speed={1}
+        speed={tts.speed}
         voiceName={voiceName}
       />
 
