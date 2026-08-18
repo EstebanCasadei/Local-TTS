@@ -351,12 +351,14 @@ export class PlaybackQueue {
         playDuration,
       };
       this.scheduled.push(entry);
-      // chunkStartTimes must reflect where audio ACTUALLY starts playing,
-      // not the buffer's beginning. When seeking to mid-chunk (localStart > 0),
-      // position starts at timelineEnd + localStart, so chunkStartTimes must
-      // match — otherwise the karaoke thinks position is already past the
-      // first words of the chunk, highlighting them as "past" (old text).
-      this.chunkStartTimes[index] = timelineEnd + localStart;
+      // chunkStartTimes is the start of the chunk BUFFER in the audio timeline,
+      // NOT where playback resumes within the chunk. The position getter
+      // already adds localStart (entry.offset + localStart), so word timing
+      // must be distributed across the full chunk — otherwise seeking to
+      // mid-chunk shifts all word start times to the seek position, making
+      // the first word appear "active" (a flash to sentence start on speed
+      // change).
+      this.chunkStartTimes[index] = timelineEnd;
       this.sources.add(source);
       source.onended = () => {
         this.sources.delete(source);
