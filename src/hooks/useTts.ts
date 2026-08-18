@@ -170,6 +170,10 @@ export function useTts(): UseTts {
           },
         });
         queue.setPlan(chunks.length);
+        // Apply the user's saved speed preference to the queue — it defaults
+        // to 1, but the user may have set a different speed before clicking play.
+        // Use speedRef (always current) instead of state.speed (stale in closure).
+        queue.setRate(speedRef.current);
         queueRef.current = queue;
         return queue;
       };
