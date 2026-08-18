@@ -112,7 +112,7 @@ export function useTts(): UseTts {
     // Persist to localStorage so the preference survives across sessions.
     localStorage.setItem(SPEED_STORAGE_KEY, String(clamped));
     // Live speed change: re-seek to current position with the new rate.
-    queueRef.current?.setRate(clamped);
+    void queueRef.current?.setRate(clamped);
   }, []);
 
   const synthesize = useCallback(

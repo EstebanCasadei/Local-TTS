@@ -146,7 +146,10 @@ export class PlaybackQueue {
 
   /** Seeks to a global position in seconds, re-scheduling from that point. */
   async seek(time: number): Promise<number> {
-    if (this.closed || !this.total || time < 0) return -1;
+    // Note: we do NOT check this.closed here — close() means "no more chunks
+    // will arrive", not "playback is over". Seeking must work after close()
+    // so the user can change speed or scrub even when all chunks are cached.
+    if (!this.total || time < 0) return -1;
 
     let offset = 0;
     let targetIndex = -1;
