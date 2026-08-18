@@ -132,6 +132,7 @@ export function useTts(): UseTts {
       // source.start() calls would silently fail on a closed context.
       let queue: PlaybackQueue | null = null;
       let firstChunkPlayed = false;
+      const decodePromises: Promise<void>[] = [];
 
       const ensureQueue = () => {
         if (queue) return queue;
@@ -174,7 +175,7 @@ export function useTts(): UseTts {
               // Decode and push to the queue immediately — the queue schedules
               // it on the AudioContext clock. If it's the first chunk, the
               // queue starts playing right away (streaming).
-              decodeWav(wav).then((buffer) => {
+              const p = decodeWav(wav).then((buffer) => {
                 const q = ensureQueue();
                 q.push(index, buffer);
                 setState((prev) => ({
@@ -189,6 +190,7 @@ export function useTts(): UseTts {
                   void q.play();
                 }
               });
+              decodePromises.push(p);
             },
             onChunkFailed: ({ index, message }) => {
               console.warn(`[useTts] chunk ${index + 1} failed:`, message);
@@ -208,6 +210,11 @@ export function useTts(): UseTts {
           update({ status: "error", error: "No se pudo sintetizar ningún fragmento." });
           return;
         }
+
+        // Wait for any in-flight decodeWav promises to finish before closing
+        // the queue — otherwise the last chunk's buffer may not be pushed yet,
+        // and close() would mark it as skipped (cutting off the last sentence).
+        await Promise.all(decodePromises);
 
         // Tell the queue no more chunks are coming.
         const q = queueRef.current as PlaybackQueue | null;
