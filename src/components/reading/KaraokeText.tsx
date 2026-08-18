@@ -59,13 +59,22 @@ function buildTokens(
     const fallbackStart = (globalCharOffset / totalChars) * duration;
     const fallbackDuration = (chunkChars / totalChars) * duration;
 
+    const hasRealStart = chunkStartTimes[i] != null;
     const chunkStart = chunkStartTimes[i] ?? fallbackStart;
     const nextStart = chunkStartTimes[i + 1];
+
+    // When we have real timing data, the last known chunk gets the remaining
+    // duration (duration - chunkStart). But when chunkStart is itself a
+    // fallback (no real data), use the proportional fallbackDuration —
+    // otherwise the first chunk hogs the entire timeline and every word in
+    // it spans a huge range, so only the first word gets highlighted.
     const chunkDuration =
       nextStart != null
         ? nextStart - chunkStart
-        : duration > chunkStart
-          ? duration - chunkStart
+        : hasRealStart
+          ? duration > chunkStart
+            ? duration - chunkStart
+            : fallbackDuration
           : fallbackDuration;
 
     let localCharOffset = 0;
