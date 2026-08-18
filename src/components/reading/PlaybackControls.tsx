@@ -118,7 +118,7 @@ function SpeedMenu({ speed, onChange }: { speed: number; onChange: (speed: numbe
         <input
           aria-label="Velocidad de lectura"
           className="w-full accent-action-primary"
-          max={2}
+          max={3}
           min={0.5}
           onChange={(event) => onChange(Number.parseFloat(event.target.value))}
           step={0.5}
@@ -130,6 +130,8 @@ function SpeedMenu({ speed, onChange }: { speed: number; onChange: (speed: numbe
           <span>1</span>
           <span>1.5</span>
           <span>2</span>
+          <span>2.5</span>
+          <span>3</span>
         </div>
       </div>
     </details>

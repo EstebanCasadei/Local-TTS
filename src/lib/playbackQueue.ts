@@ -146,7 +146,10 @@ export class PlaybackQueue {
 
   /** Seeks to a global position in seconds, re-scheduling from that point. */
   async seek(time: number): Promise<number> {
-    if (this.closed || !this.total || time < 0) return -1;
+    // Note: we do NOT check this.closed here — close() means "no more chunks
+    // will arrive", not "playback is over". Seeking must work after close()
+    // so the user can change speed or scrub even when all chunks are cached.
+    if (!this.total || time < 0) return -1;
 
     let offset = 0;
     let targetIndex = -1;
@@ -168,8 +171,12 @@ export class PlaybackQueue {
 
     if (targetIndex === -1) return -1;
 
-    this.clearScheduled();
+    // Set nextIndex BEFORE clearScheduled() so that clearScheduled re-adds
+    // the target chunk's buffer to entries (it re-adds index >= nextIndex).
+    // If we set nextIndex after clearScheduled, the target's buffer wouldn't
+    // be in entries and pump() would hit a gap → no audio.
     this.nextIndex = targetIndex;
+    this.clearScheduled();
     this.pendingLocalOffset = localOffset;
     this.timelineEnd = offset;
 
@@ -217,15 +224,21 @@ export class PlaybackQueue {
 
   /**
    * Changes playback rate and re-seeks to the current position so scheduled
-   * chunks use the new rate immediately. Unlike the old useTts approach, this
-   * works mid-playback — the user hears the speed change in real-time.
+   * chunks use the new rate immediately. Works mid-playback — the user hears
+   * the speed change in real-time.
+   *
+   * Important: position is calculated with the OLD rate (before the change),
+   * because the scheduled entries were computed with that rate. Then we set
+   * the new rate and seek to that position — pump() schedules with the new rate.
    */
   async setRate(rate: number): Promise<void> {
     const r = Math.max(0.5, Math.min(3, rate));
     if (r === this.rate) return;
+    // Capture position with the OLD rate before changing it.
+    const currentPosition = this.position;
     this.rate = r;
-    if (this.wantPlay && this.position > 0) {
-      await this.seek(this.position);
+    if (this.wantPlay && currentPosition > 0) {
+      await this.seek(currentPosition);
     }
     this.notify();
   }
