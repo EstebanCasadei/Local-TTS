@@ -168,8 +168,12 @@ export class PlaybackQueue {
 
     if (targetIndex === -1) return -1;
 
-    this.clearScheduled();
+    // Set nextIndex BEFORE clearScheduled() so that clearScheduled re-adds
+    // the target chunk's buffer to entries (it re-adds index >= nextIndex).
+    // If we set nextIndex after clearScheduled, the target's buffer wouldn't
+    // be in entries and pump() would hit a gap → no audio.
     this.nextIndex = targetIndex;
+    this.clearScheduled();
     this.pendingLocalOffset = localOffset;
     this.timelineEnd = offset;
 
