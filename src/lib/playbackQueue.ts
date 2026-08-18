@@ -78,6 +78,8 @@ export class PlaybackQueue {
 
   /** Start time of each chunk in the audio's internal timeline. */
   private chunkStartTimes: number[] = [];
+  /** Cached snapshot of chunkStartTimes — only rebuilt when values change. */
+  private chunkStartTimesSnapshot: (number | undefined)[] = [];
 
   constructor(ctx: AudioContext, options: PlaybackQueueOptions = {}) {
     this.ctx = ctx;
@@ -415,6 +417,31 @@ export class PlaybackQueue {
     this.notify();
   }
 
+  /**
+   * Returns a snapshot of chunkStartTimes, creating a new array only when the
+   * values have changed since the last call. This keeps the array reference
+   * stable across ticks (which fire every 100ms) so that React useMemo in
+   * KaraokeText doesn't recompute tokens on every tick when nothing changed.
+   */
+  private getChunkStartTimesSnapshot(): (number | undefined)[] {
+    const current = this.chunkStartTimes;
+    const cached = this.chunkStartTimesSnapshot;
+
+    if (current.length === cached.length) {
+      let changed = false;
+      for (let i = 0; i < current.length; i++) {
+        if (current[i] !== cached[i]) {
+          changed = true;
+          break;
+        }
+      }
+      if (!changed) return cached;
+    }
+
+    this.chunkStartTimesSnapshot = [...current];
+    return this.chunkStartTimesSnapshot;
+  }
+
   private notify(): void {
     this.onChange?.({
       state: this.state,
@@ -423,7 +450,7 @@ export class PlaybackQueue {
       index: this.currentIndex,
       total: this.total,
       playing: this.wantPlay,
-      chunkStartTimes: [...this.chunkStartTimes],
+      chunkStartTimes: this.getChunkStartTimesSnapshot(),
     });
   }
 }

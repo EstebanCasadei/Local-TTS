@@ -119,18 +119,19 @@ function buildTokens(
 function findActiveWordIndex(tokens: WordToken[], position: number, duration: number): number {
   if (duration <= 0) return -1;
 
-  const wordTokens = tokens.filter((t) => !t.isSpace);
-  if (wordTokens.length === 0) return -1;
-
-  if (position >= duration) {
-    return tokens.findIndex((t) => t === wordTokens[wordTokens.length - 1]);
-  }
-
+  let lastWordIndex = -1;
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
-    if (!token.isSpace && position >= token.start && position < token.end) {
+    if (token.isSpace) continue;
+    lastWordIndex = i;
+    if (position >= token.start && position < token.end) {
       return i;
     }
+  }
+
+  // If we've passed the end of all words, highlight the last one.
+  if (position >= duration && lastWordIndex >= 0) {
+    return lastWordIndex;
   }
 
   return -1;
@@ -148,7 +149,6 @@ export function KaraokeText({
   duration,
   onSeek,
 }: KaraokeTextProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<HTMLSpanElement | null>(null);
   const [scrollPaused, setScrollPaused] = useState(false);
   const autoScrollRef = useRef(false);
@@ -213,11 +213,7 @@ export function KaraokeText({
   }, []);
 
   return (
-    <div
-      className="h-full min-h-0 flex-1 overflow-y-auto"
-      onScroll={handleScroll}
-      ref={containerRef}
-    >
+    <div className="h-full min-h-0 flex-1 overflow-y-auto" onScroll={handleScroll}>
       <p className="font-p whitespace-pre-line leading-relaxed">
         {tokens.map((token, index) => {
           if (token.isSpace) {
