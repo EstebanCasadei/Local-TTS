@@ -70,7 +70,6 @@ export class PlaybackQueue {
   private nextIndex = 0;
   private scheduledUntil = 0; // ctx time when scheduled audio ends
   private timelineEnd = 0; // audio-internal time of the end of scheduled audio
-  private closed = false;
   private wantPlay = false;
   private state: PlaybackState = PlaybackState.IDLE;
   private ticker: ReturnType<typeof setInterval> | null = null;
@@ -121,7 +120,6 @@ export class PlaybackQueue {
 
   /** No more chunks will arrive — skip anything missing. */
   close(): void {
-    this.closed = true;
     for (let i = 0; i < this.total; i++) {
       if (!this.buffers.has(i) && i >= this.nextIndex) this.skipped.add(i);
     }
@@ -149,9 +147,6 @@ export class PlaybackQueue {
 
   /** Seeks to a global position in seconds, re-scheduling from that point. */
   async seek(time: number): Promise<number> {
-    // Note: we do NOT check this.closed here — close() means "no more chunks
-    // will arrive", not "playback is over". Seeking must work after close()
-    // so the user can change speed or scrub even when all chunks are cached.
     if (!this.total || time < 0) return -1;
 
     let offset = 0;
@@ -194,7 +189,7 @@ export class PlaybackQueue {
 
   /** Seeks to a specific chunk index (e.g. clicking a word in karaoke). */
   async seekToChunk(index: number, localTime = 0): Promise<number> {
-    if (this.closed || index < 0 || index >= this.total) return -1;
+    if (index < 0 || index >= this.total) return -1;
 
     // Calculate the global time of this chunk's start.
     let globalTime = 0;
@@ -352,7 +347,12 @@ export class PlaybackQueue {
         playDuration,
       };
       this.scheduled.push(entry);
-      this.chunkStartTimes[index] = timelineEnd;
+      // chunkStartTimes must reflect where audio ACTUALLY starts playing,
+      // not the buffer's beginning. When seeking to mid-chunk (localStart > 0),
+      // position starts at timelineEnd + localStart, so chunkStartTimes must
+      // match — otherwise the karaoke thinks position is already past the
+      // first words of the chunk, highlighting them as "past" (old text).
+      this.chunkStartTimes[index] = timelineEnd + localStart;
       this.sources.add(source);
       source.onended = () => {
         this.sources.delete(source);
@@ -380,7 +380,10 @@ export class PlaybackQueue {
     }
     this.sources.clear();
     this.scheduled = [];
-    this.chunkStartTimes = new Array(this.total);
+    // Do NOT reset chunkStartTimes here — already-played chunks retain their
+    // start times so the karaoke can still compute correct word timing for
+    // them after a seek/rate change. pump() will overwrite entries from
+    // nextIndex onward. stop() resets chunkStartTimes to [] explicitly.
     this.scheduledUntil = 0;
     // Re-add all buffers to entries so pump() can re-schedule them.
     for (const [index, buffer] of this.buffers) {

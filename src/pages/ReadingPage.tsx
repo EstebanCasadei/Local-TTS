@@ -13,6 +13,7 @@ import {
 import { useBook } from "../hooks/useBook.ts";
 import { useTts } from "../hooks/useTts.ts";
 import { getBookRepository } from "../lib/books";
+import { chunkText } from "../lib/chunker";
 import BookmarkIcon from "../icons/BookmarkIcon.svg?react";
 import ChevronUpIcon from "../icons/ChevronUpIcon.svg?react";
 import MusicIcon from "../icons/MusicIcon.svg?react";
@@ -46,6 +47,16 @@ export function ReadingPage() {
 
   // Full text of the document, used for both TTS and word-level karaoke.
   const allText = useMemo(() => chunks.map((c) => c.texto).join("\n"), [chunks]);
+
+  // Pre-compute synthesis chunks so the karaoke text has the same format
+  // before and after the user clicks play. Without this, the text shows as
+  // one big block (with paragraph breaks) before play, then re-formats into
+  // sentence-level chunks (with spaces) after play — a visible format change.
+  // chunkText is deterministic, so this matches what useTts.synthesize computes.
+  const karaokeChunks = useMemo(
+    () => (tts.synthesisChunks.length > 0 ? tts.synthesisChunks : chunkText(allText)),
+    [tts.synthesisChunks, allText],
+  );
 
   // When chunks load and TTS is idle, synthesize them.
   // Pass bookId + chunkIds so the worker can check the OPFS cache and skip
@@ -149,7 +160,7 @@ export function ReadingPage() {
               <div className="min-h-0 flex-1 mt-4">
                 <KaraokeText
                   chunkStartTimes={tts.chunkStartTimes}
-                  chunks={tts.synthesisChunks.length > 0 ? tts.synthesisChunks : [allText]}
+                  chunks={karaokeChunks}
                   duration={tts.duration}
                   onSeek={tts.seek}
                   position={tts.currentPosition}
