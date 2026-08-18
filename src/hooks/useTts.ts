@@ -93,7 +93,7 @@ export function useTts(): UseTts {
     // Reset everything when the voice changes — old audio is a different sample rate.
     sourceNodeRef.current?.stop();
     audioBuffersRef.current = [];
-    setState({ ...IDLE_STATE, voiceId });
+    setState((prev) => ({ ...IDLE_STATE, voiceId, speed: prev.speed }));
   }, []);
 
   // TODO(#10): Live speed change mid-playback requires re-scheduling the
@@ -293,8 +293,9 @@ export function useTts(): UseTts {
     sourceNodeRef.current = null;
     audioBuffersRef.current = [];
     playOffsetRef.current = 0;
-    setState({ ...IDLE_STATE, voiceId: state.voiceId });
-  }, [state.voiceId]);
+    // Preserve user preferences (voice, speed) across resets.
+    setState({ ...IDLE_STATE, voiceId: state.voiceId, speed: state.speed });
+  }, [state.voiceId, state.speed]);
 
   const formatPosition = useCallback(
     () => formatDuration(state.currentPosition),
