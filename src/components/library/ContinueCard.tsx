@@ -5,7 +5,7 @@ import { BookMeta, PlayIcon, SyncBadge } from "./shared.tsx";
 
 // ponytail: progreso maquetado con valores fijos — `Progress` no guarda
 // duración y el audio es #6. Conectar cuando exista.
-const PLACEHOLDER = { percent: 45, elapsed: "12:45", total: "28:30" };
+// TODO(#16): wire real progress from the Progress record (chunkActualId + offset).
 
 export function ContinueCard({ book }: { book: Book }) {
   return (
@@ -13,7 +13,7 @@ export function ContinueCard({ book }: { book: Book }) {
       <div className="flex items-start justify-between gap-2">
         <Link
           className="min-w-0 transition duration-150 hover:text-text-primary-hover"
-          to="/reading"
+          to={`/reading?book=${book.id}`}
         >
           <h3 className="font-h3 font-semibold">{book.titulo}</h3>
           <BookMeta book={book} />
@@ -23,30 +23,25 @@ export function ContinueCard({ book }: { book: Book }) {
 
       <div className="flex flex-col gap-2">
         <div className="font-label flex justify-between text-text-primary">
-          <span>{PLACEHOLDER.percent}% completado</span>
-          <span>
-            {PLACEHOLDER.elapsed} / {PLACEHOLDER.total}
-          </span>
+          <span>0% completado</span>
+          <span>00:00 / 00:00</span>
         </div>
         <div
           aria-label="Progreso de escucha"
           aria-valuemax={100}
           aria-valuemin={0}
-          aria-valuenow={PLACEHOLDER.percent}
+          aria-valuenow={0}
           className="h-1.5 overflow-hidden rounded-full bg-text-primary"
           role="progressbar"
         >
-          <div
-            className="h-full rounded-full bg-action-primary"
-            style={{ width: `${PLACEHOLDER.percent}%` }}
-          />
+          <div className="h-full rounded-full bg-action-primary" style={{ width: "0%" }} />
         </div>
       </div>
 
       <div className="flex items-center justify-between gap-3">
         <Link
           className="font-p flex w-fit items-center gap-2 rounded-[8px] bg-text-primary px-4 py-2 font-bold text-bg-primary transition duration-150 hover:bg-text-primary-hover active:scale-95"
-          to="/reading"
+          to={`/reading?book=${book.id}`}
         >
           <PlayIcon />
           Reproducir
