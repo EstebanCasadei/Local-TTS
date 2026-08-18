@@ -45,6 +45,15 @@ export interface UseTts extends TtsState {
   formatTotal: () => string;
 }
 
+const SPEED_STORAGE_KEY = "local-tts:speed";
+
+function loadSavedSpeed(): number {
+  const saved = localStorage.getItem(SPEED_STORAGE_KEY);
+  if (!saved) return 1;
+  const speed = Number.parseFloat(saved);
+  return Number.isFinite(speed) && speed >= 0.5 && speed <= 3 ? speed : 1;
+}
+
 const IDLE_STATE: TtsState = {
   status: "idle",
   voiceId: VOICES[0].id,
@@ -65,7 +74,12 @@ export function useTts(): UseTts {
   const queueRef = useRef<PlaybackQueue | null>(null);
   const speedRef = useRef(1);
 
-  const [state, setState] = useState<TtsState>(IDLE_STATE);
+  // Initialize speed from localStorage so the user's preference persists
+  // across sessions.
+  const [state, setState] = useState<TtsState>(() => ({
+    ...IDLE_STATE,
+    speed: loadSavedSpeed(),
+  }));
 
   // Create the TTS client once; dispose on unmount.
   useEffect(() => {
@@ -93,9 +107,12 @@ export function useTts(): UseTts {
   }, []);
 
   const setSpeed = useCallback((speed: number) => {
-    setState((prev) => ({ ...prev, speed }));
+    const clamped = Math.max(0.5, Math.min(3, speed));
+    setState((prev) => ({ ...prev, speed: clamped }));
+    // Persist to localStorage so the preference survives across sessions.
+    localStorage.setItem(SPEED_STORAGE_KEY, String(clamped));
     // Live speed change: re-seek to current position with the new rate.
-    queueRef.current?.setRate(speed);
+    queueRef.current?.setRate(clamped);
   }, []);
 
   const synthesize = useCallback(
