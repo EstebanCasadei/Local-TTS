@@ -44,6 +44,7 @@ export interface UseTts extends TtsState {
     bookId?: string,
     chunkIds?: string[],
     preChunked?: string[],
+    resumeFrom?: { chunkIndex: number; globalPosition: number },
   ) => Promise<void>;
   play: () => void;
   pause: () => void;
@@ -128,7 +129,13 @@ export function useTts(): UseTts {
   }, []);
 
   const synthesize = useCallback(
-    async (text: string, bookId?: string, chunkIds?: string[], preChunked?: string[]) => {
+    async (
+      text: string,
+      bookId?: string,
+      chunkIds?: string[],
+      preChunked?: string[],
+      resumeFrom?: { chunkIndex: number; globalPosition: number },
+    ) => {
       const client = clientRef.current;
       if (!client) return;
 
@@ -221,11 +228,24 @@ export function useTts(): UseTts {
                   chunksDone: prev.chunksDone + 1,
                 }));
 
-                // Auto-play on first chunk arrival (user gesture was the
-                // synthesize call, so AudioContext can resume).
+                // Start playback when the right chunk arrives:
+                // - If resuming, wait for the resume chunk, then seek to the
+                //   saved global position. The worker synthesizes sequentially,
+                //   so by the time chunk N arrives, chunks 0..N-1 are already
+                //   in the queue's buffers, and seek() can find the right chunk
+                //   and local offset from the global position.
+                // - If not resuming, play on the first chunk (streaming).
                 if (!firstChunkPlayed) {
-                  firstChunkPlayed = true;
-                  void q.play();
+                  if (resumeFrom && index >= resumeFrom.chunkIndex) {
+                    firstChunkPlayed = true;
+                    void q.seek(resumeFrom.globalPosition);
+                    void q.play();
+                  } else if (!resumeFrom) {
+                    firstChunkPlayed = true;
+                    void q.play();
+                  }
+                  // If resumeFrom is set but we haven't reached the resume chunk,
+                  // don't play yet — wait for it to arrive.
                 }
               });
               decodePromises.push(p);

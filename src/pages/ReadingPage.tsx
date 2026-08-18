@@ -72,9 +72,7 @@ export function ReadingPage() {
     chunkIds,
     activeChunkIndex: tts.activeChunkIndex,
     position: tts.currentPosition,
-    chunkStartTimes: tts.chunkStartTimes,
     isPlaying: tts.isPlaying,
-    duration: tts.duration,
   });
 
   // When chunks load and TTS is idle, synthesize them.
@@ -87,32 +85,15 @@ export function ReadingPage() {
 
     // Find the resume position from saved progress.
     const saved = progressRef.current;
-    let resumeChunkIndex = 0;
-    let resumeOffset = 0;
+    let resumeFrom: { chunkIndex: number; globalPosition: number } | undefined;
     if (saved && saved.chunkActualId) {
       const idx = chunkIds.indexOf(saved.chunkActualId);
-      if (idx >= 0) {
-        resumeChunkIndex = idx;
-        resumeOffset = saved.offsetSegundos;
+      if (idx >= 0 && saved.offsetSegundos > 0) {
+        resumeFrom = { chunkIndex: idx, globalPosition: saved.offsetSegundos };
       }
     }
 
-    void tts.synthesize(allText, bookId ?? undefined, chunkIds, chunkTexts);
-
-    // If we have a saved position, seek to it after the first chunk arrives.
-    // The queue is created lazily on first decode, so we defer the seek.
-    if (resumeChunkIndex > 0 || resumeOffset > 0) {
-      // Wait for the queue to be ready (first chunk decoded), then seek.
-      // The queue calls play() on first chunk, so we seek right after.
-      const checkAndSeek = () => {
-        // seekToChunk will be called once the queue exists — use a microtask
-        // delay to let the first decode + queue creation complete.
-        setTimeout(() => {
-          tts.seekToChunk(resumeChunkIndex, resumeOffset);
-        }, 100);
-      };
-      checkAndSeek();
-    }
+    void tts.synthesize(allText, bookId ?? undefined, chunkIds, chunkTexts, resumeFrom);
   };
 
   const menuItems: MenuItem[] = [
