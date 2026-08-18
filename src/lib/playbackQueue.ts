@@ -217,15 +217,21 @@ export class PlaybackQueue {
 
   /**
    * Changes playback rate and re-seeks to the current position so scheduled
-   * chunks use the new rate immediately. Unlike the old useTts approach, this
-   * works mid-playback — the user hears the speed change in real-time.
+   * chunks use the new rate immediately. Works mid-playback — the user hears
+   * the speed change in real-time.
+   *
+   * Important: position is calculated with the OLD rate (before the change),
+   * because the scheduled entries were computed with that rate. Then we set
+   * the new rate and seek to that position — pump() schedules with the new rate.
    */
   async setRate(rate: number): Promise<void> {
     const r = Math.max(0.5, Math.min(3, rate));
     if (r === this.rate) return;
+    // Capture position with the OLD rate before changing it.
+    const currentPosition = this.position;
     this.rate = r;
-    if (this.wantPlay && this.position > 0) {
-      await this.seek(this.position);
+    if (this.wantPlay && currentPosition > 0) {
+      await this.seek(currentPosition);
     }
     this.notify();
   }
