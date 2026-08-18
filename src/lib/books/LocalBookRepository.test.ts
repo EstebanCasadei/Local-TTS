@@ -133,6 +133,33 @@ describe("LocalBookRepository", () => {
     expect(await repo.getProgress("b1")).toEqual(p);
   });
 
+  it("saveProgress overwrites previous progress (last-write-wins)", async () => {
+    const repo = new LocalBookRepository(memoryStore());
+    const p1: Progress = {
+      bookId: "b1",
+      chunkActualId: "c0001",
+      offsetSegundos: 3.0,
+      fechaUltimaEscucha: 1000,
+    };
+    await repo.saveProgress(p1);
+
+    const p2: Progress = {
+      bookId: "b1",
+      chunkActualId: "c0005",
+      offsetSegundos: 12.7,
+      fechaUltimaEscucha: 2000,
+    };
+    await repo.saveProgress(p2);
+
+    const loaded = await repo.getProgress("b1");
+    expect(loaded).toEqual(p2);
+  });
+
+  it("getProgress returns null for a book with no saved progress", async () => {
+    const repo = new LocalBookRepository(memoryStore());
+    expect(await repo.getProgress("no-such-book")).toBeNull();
+  });
+
   it("saveBookmark + getBookmarks + deleteBookmark", async () => {
     const repo = new LocalBookRepository(memoryStore());
     const bm: Bookmark = {

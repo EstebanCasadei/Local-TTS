@@ -30,17 +30,25 @@ export interface TtsState {
   /** Audio synthesis chunks, aligned with chunkStartTimes for karaoke. */
   synthesisChunks: string[];
   chunkStartTimes: (number | undefined)[];
+  /** Currently playing synthesis chunk index (for progress saving). */
+  activeChunkIndex: number;
   error: string | null;
 }
 
 export interface UseTts extends TtsState {
   setVoice: (voiceId: string) => void;
   setSpeed: (speed: number) => void;
-  synthesize: (text: string, bookId?: string, chunkIds?: string[]) => Promise<void>;
+  /** If preChunked is provided, uses those strings directly instead of re-splitting text. */
+  synthesize: (
+    text: string,
+    bookId?: string,
+    chunkIds?: string[],
+    preChunked?: string[],
+  ) => Promise<void>;
   play: () => void;
   pause: () => void;
   seek: (time: number) => void;
-  seekToChunk: (index: number) => void;
+  seekToChunk: (index: number, localTime?: number) => void;
   cancel: () => void;
   reset: () => void;
   formatPosition: () => string;
@@ -69,6 +77,7 @@ const IDLE_STATE: TtsState = {
   duration: 0,
   synthesisChunks: [],
   chunkStartTimes: [],
+  activeChunkIndex: 0,
   error: null,
 };
 
@@ -119,7 +128,7 @@ export function useTts(): UseTts {
   }, []);
 
   const synthesize = useCallback(
-    async (text: string, bookId?: string, chunkIds?: string[]) => {
+    async (text: string, bookId?: string, chunkIds?: string[], preChunked?: string[]) => {
       const client = clientRef.current;
       if (!client) return;
 
@@ -127,7 +136,9 @@ export function useTts(): UseTts {
       queueRef.current?.stop();
       queueRef.current = null;
 
-      const chunks = chunkText(text);
+      // Use pre-chunked texts if provided (so synthesis chunks align 1:1 with
+      // repository chunks for progress tracking). Otherwise, split the text.
+      const chunks = preChunked ?? chunkText(text);
       if (chunks.length === 0) {
         update({ status: "error", error: "No hay texto para sintetizar." });
         return;
@@ -144,6 +155,7 @@ export function useTts(): UseTts {
         duration: 0,
         synthesisChunks: chunks,
         chunkStartTimes: new Array(chunks.length),
+        activeChunkIndex: 0,
       });
 
       // The queue is created lazily after the first chunk decodes, because
@@ -170,6 +182,7 @@ export function useTts(): UseTts {
               currentPosition: snap.position,
               duration: snap.duration,
               chunkStartTimes: snap.chunkStartTimes,
+              activeChunkIndex: snap.index,
             }));
           },
         });
@@ -266,8 +279,8 @@ export function useTts(): UseTts {
     queueRef.current?.seek(time);
   }, []);
 
-  const seekToChunk = useCallback((index: number) => {
-    queueRef.current?.seekToChunk(index);
+  const seekToChunk = useCallback((index: number, localTime?: number) => {
+    queueRef.current?.seekToChunk(index, localTime);
   }, []);
 
   const cancel = useCallback(() => {
@@ -283,6 +296,7 @@ export function useTts(): UseTts {
       duration: 0,
       synthesisChunks: [],
       chunkStartTimes: [],
+      activeChunkIndex: 0,
     });
   }, [update]);
 

@@ -25,6 +25,10 @@ vi.mock("../hooks/useLibrary.ts", () => ({
   useLibrary: () => ({ books, loading: false }),
 }));
 
+vi.mock("../hooks/useBookProgress.ts", () => ({
+  useBookProgress: () => ({ progress: null, loading: false }),
+}));
+
 const renderPage = () =>
   render(
     <MemoryRouter>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import type { MenuItem } from "../components/library/BookMenu.tsx";
 import { BookMenu } from "../components/library";
@@ -11,6 +11,7 @@ import {
   VoicesPanel,
 } from "../components/reading";
 import { useBook } from "../hooks/useBook.ts";
+import { useProgress } from "../hooks/useProgress.ts";
 import { useTts } from "../hooks/useTts.ts";
 import { getBookRepository } from "../lib/books";
 import { chunkText } from "../lib/chunker";
@@ -29,11 +30,15 @@ export function ReadingPage() {
   const [searchParams] = useSearchParams();
   const bookId = searchParams.get("book");
 
-  const { chunks, loading } = useBook(bookId);
+  const { chunks, progress, loading } = useBook(bookId);
   const tts = useTts();
   const [panel, setPanel] = useState<"voices" | "audio" | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [bookTitle, setBookTitle] = useState<string>("");
+  const progressRef = useRef(progress);
+
+  // Keep progressRef in sync so handleRead always sees the latest saved progress.
+  progressRef.current = progress;
 
   // Load book metadata for the header
   useEffect(() => {
@@ -45,27 +50,69 @@ export function ReadingPage() {
       });
   }, [bookId]);
 
-  // Full text of the document, used for both TTS and word-level karaoke.
-  const allText = useMemo(() => chunks.map((c) => c.texto).join("\n"), [chunks]);
+  // Repository chunk texts — used directly as synthesis chunks so they align
+  // 1:1 with chunk IDs. This makes progress saving/resume trivial: the queue's
+  // activeChunkIndex maps directly to a repository chunk ID.
+  const chunkTexts = useMemo(() => chunks.map((c) => c.texto), [chunks]);
+  const chunkIds = useMemo(() => chunks.map((c) => c.id), [chunks]);
 
-  // Pre-compute synthesis chunks so the karaoke text has the same format
-  // before and after the user clicks play. Without this, the text shows as
-  // one big block (with paragraph breaks) before play, then re-formats into
-  // sentence-level chunks (with spaces) after play — a visible format change.
-  // chunkText is deterministic, so this matches what useTts.synthesize computes.
+  // Pre-compute karaoke chunks so the text has the same format before and
+  // after the user clicks play. Before play, use chunkText(allText) which
+  // matches the repository chunks (they were created with chunkText during
+  // upload). After play, tts.synthesisChunks is the same data.
+  const allText = useMemo(() => chunkTexts.join("\n"), [chunkTexts]);
   const karaokeChunks = useMemo(
     () => (tts.synthesisChunks.length > 0 ? tts.synthesisChunks : chunkText(allText)),
     [tts.synthesisChunks, allText],
   );
 
+  // Debounced progress saving during playback.
+  useProgress({
+    bookId,
+    chunkIds,
+    activeChunkIndex: tts.activeChunkIndex,
+    position: tts.currentPosition,
+    chunkStartTimes: tts.chunkStartTimes,
+    isPlaying: tts.isPlaying,
+    duration: tts.duration,
+  });
+
   // When chunks load and TTS is idle, synthesize them.
-  // Pass bookId + chunkIds so the worker can check the OPFS cache and skip
-  // synthesis for already-generated audio.
+  // Pass chunkTexts directly as preChunked so synthesis chunks = repository
+  // chunks (1:1 mapping for progress). Pass bookId + chunkIds so the worker
+  // can check the OPFS cache and skip synthesis for already-generated audio.
   const handleRead = () => {
     if (chunks.length === 0) return;
-    const chunkIds = chunks.map((c) => c.id);
     tts.reset();
-    void tts.synthesize(allText, bookId ?? undefined, chunkIds);
+
+    // Find the resume position from saved progress.
+    const saved = progressRef.current;
+    let resumeChunkIndex = 0;
+    let resumeOffset = 0;
+    if (saved && saved.chunkActualId) {
+      const idx = chunkIds.indexOf(saved.chunkActualId);
+      if (idx >= 0) {
+        resumeChunkIndex = idx;
+        resumeOffset = saved.offsetSegundos;
+      }
+    }
+
+    void tts.synthesize(allText, bookId ?? undefined, chunkIds, chunkTexts);
+
+    // If we have a saved position, seek to it after the first chunk arrives.
+    // The queue is created lazily on first decode, so we defer the seek.
+    if (resumeChunkIndex > 0 || resumeOffset > 0) {
+      // Wait for the queue to be ready (first chunk decoded), then seek.
+      // The queue calls play() on first chunk, so we seek right after.
+      const checkAndSeek = () => {
+        // seekToChunk will be called once the queue exists — use a microtask
+        // delay to let the first decode + queue creation complete.
+        setTimeout(() => {
+          tts.seekToChunk(resumeChunkIndex, resumeOffset);
+        }, 100);
+      };
+      checkAndSeek();
+    }
   };
 
   const menuItems: MenuItem[] = [
