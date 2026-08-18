@@ -2,35 +2,32 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { TtsClient, VOICES, type DownloadProgress } from "../lib/ttsClient";
 import { chunkText } from "../lib/chunker";
 import { decodeWav, getAudioContext, formatDuration } from "../lib/audio";
+import { PlaybackQueue, PlaybackState, type PlaybackSnapshot } from "../lib/playbackQueue";
 
-// The synthesis lifecycle states. The UI branches on these to show the right
-// feedback (download progress, synthesis progress, playback controls, errors).
+// The synthesis + playback lifecycle. With the streaming queue, playback starts
+// as soon as the first chunk arrives — no waiting for all chunks to synthesize.
 export type TtsStatus =
-  | "idle" // nothing happening, waiting for user input
-  | "downloading-voice" // fetching the Piper voice model (~60MB)
-  | "synthesizing" // generating WAV chunks
-  | "ready" // all chunks synthesized, ready to play
-  | "playing" // audio is playing
-  | "paused" // audio is paused
-  | "error"; // something went wrong
+  | "idle"
+  | "downloading-voice"
+  | "synthesizing" // still generating chunks (playback may have already started)
+  | "playing"
+  | "buffering" // playing but waiting for the next chunk
+  | "paused"
+  | "done" // all chunks played
+  | "error";
 
 export interface TtsState {
   status: TtsStatus;
   voiceId: string;
   voices: typeof VOICES;
-  speed: number; // 0.5–2, applied at playback start
-  // Download progress as 0–1 (null when not downloading).
+  speed: number;
   downloadProgress: number | null;
-  // Synthesis progress: chunks done / total.
   chunksDone: number;
   chunksTotal: number;
-  // Playback.
   isPlaying: boolean;
-  currentPosition: number; // seconds
-  duration: number; // seconds, estimated
-  // Per-chunk durations in seconds — so the UI can track which chunk is active
-  // based on cumulative real durations, not an even split (chunks vary in length).
-  chunkDurations: number[];
+  currentPosition: number;
+  duration: number;
+  activeChunkIndex: number; // currently playing chunk (for karaoke sync)
   error: string | null;
 }
 
@@ -40,6 +37,8 @@ export interface UseTts extends TtsState {
   synthesize: (text: string, bookId?: string, chunkIds?: string[]) => Promise<void>;
   play: () => void;
   pause: () => void;
+  seek: (time: number) => void;
+  seekToChunk: (index: number) => void;
   cancel: () => void;
   reset: () => void;
   formatPosition: () => string;
@@ -57,17 +56,14 @@ const IDLE_STATE: TtsState = {
   isPlaying: false,
   currentPosition: 0,
   duration: 0,
-  chunkDurations: [],
+  activeChunkIndex: 0,
   error: null,
 };
 
 export function useTts(): UseTts {
   const clientRef = useRef<TtsClient | null>(null);
-  const audioBuffersRef = useRef<AudioBuffer[]>([]);
-  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-  const playStartTimeRef = useRef(0); // AudioContext.currentTime when playback started
-  const playOffsetRef = useRef(0); // offset into the concatenated buffer (seconds)
-  const decodePromisesRef = useRef<Promise<void>[]>([]); // in-flight decodeWav calls
+  const queueRef = useRef<PlaybackQueue | null>(null);
+  const speedRef = useRef(1);
 
   const [state, setState] = useState<TtsState>(IDLE_STATE);
 
@@ -77,7 +73,7 @@ export function useTts(): UseTts {
     clientRef.current = client;
     return () => {
       client.dispose();
-      sourceNodeRef.current?.stop();
+      queueRef.current?.stop();
     };
   }, []);
 
@@ -85,23 +81,21 @@ export function useTts(): UseTts {
     setState((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  // Ref so synthesize can call play() without a circular dependency or an
-  // auto-play effect (which would loop when onended sets status back to "ready").
-  const playRef = useRef<(() => void) | null>(null);
+  // Sync speedRef so the queue callback always has the latest speed.
+  useEffect(() => {
+    speedRef.current = state.speed;
+  }, [state.speed]);
 
   const setVoice = useCallback((voiceId: string) => {
-    // Reset everything when the voice changes — old audio is a different sample rate.
-    sourceNodeRef.current?.stop();
-    audioBuffersRef.current = [];
+    queueRef.current?.stop();
+    queueRef.current = null;
     setState((prev) => ({ ...IDLE_STATE, voiceId, speed: prev.speed }));
   }, []);
 
-  // TODO(#10): Live speed change mid-playback requires re-scheduling the
-  // AudioBufferSourceNode (the streaming queue will handle this). For now,
-  // speed is applied at playback start — changing it while playing takes
-  // effect on the next play/pause-resume cycle.
   const setSpeed = useCallback((speed: number) => {
     setState((prev) => ({ ...prev, speed }));
+    // Live speed change: re-seek to current position with the new rate.
+    queueRef.current?.setRate(speed);
   }, []);
 
   const synthesize = useCallback(
@@ -109,18 +103,15 @@ export function useTts(): UseTts {
       const client = clientRef.current;
       if (!client) return;
 
-      // Cancel any existing playback.
-      sourceNodeRef.current?.stop();
+      // Stop any existing playback.
+      queueRef.current?.stop();
+      queueRef.current = null;
 
       const chunks = chunkText(text);
       if (chunks.length === 0) {
         update({ status: "error", error: "No hay texto para sintetizar." });
         return;
       }
-
-      // Pre-allocate to the chunk count so onChunk can place by index.
-      audioBuffersRef.current = new Array(chunks.length);
-      decodePromisesRef.current = [];
 
       update({
         status: "downloading-voice",
@@ -131,8 +122,31 @@ export function useTts(): UseTts {
         isPlaying: false,
         currentPosition: 0,
         duration: 0,
-        chunkDurations: [],
+        activeChunkIndex: 0,
       });
+
+      // Create the playback queue. Chunks will be pushed as they arrive —
+      // playback starts as soon as the first chunk is decoded, not after all
+      // chunks are done. This is the streaming improvement over the old
+      // "concat all buffers then play" approach.
+      const ctx = getAudioContext();
+      const queue = new PlaybackQueue(ctx, {
+        onChange: (snap: PlaybackSnapshot) => {
+          const status = mapQueueState(snap.state);
+          setState((prev) => ({
+            ...prev,
+            status,
+            isPlaying: snap.playing,
+            currentPosition: snap.position,
+            duration: snap.duration,
+            activeChunkIndex: snap.index,
+          }));
+        },
+      });
+      queue.setPlan(chunks.length);
+      queueRef.current = queue;
+
+      let firstChunkPlayed = false;
 
       try {
         const result = await client.synthesize(
@@ -149,25 +163,27 @@ export function useTts(): UseTts {
               update({ status: "synthesizing", downloadProgress: null });
             },
             onChunk: ({ wav, index }) => {
-              // Place each buffer at its correct index — not push. With cached
-              // chunks, all WAVs arrive nearly simultaneously, so decodeWav
-              // resolves in non-deterministic order. Pushing would scramble the
-              // audio (chunk 1 before chunk 0). Using the index guarantees the
-              // concatenated buffer plays in the right order.
-              const p = decodeWav(wav).then((buffer) => {
-                audioBuffersRef.current[index] = buffer;
-                const filled = audioBuffersRef.current.filter(Boolean);
+              // Decode and push to the queue immediately — the queue schedules
+              // it on the AudioContext clock. If it's the first chunk, the
+              // queue starts playing right away (streaming).
+              decodeWav(wav).then((buffer) => {
+                queue.push(index, buffer);
                 setState((prev) => ({
                   ...prev,
-                  chunksDone: filled.length,
-                  duration: filled.reduce((acc, b) => acc + b.duration, 0),
-                  chunkDurations: filled.map((b) => b.duration),
+                  chunksDone: prev.chunksDone + 1,
                 }));
+
+                // Auto-play on first chunk arrival (user gesture was the
+                // synthesize call, so AudioContext can resume).
+                if (!firstChunkPlayed) {
+                  firstChunkPlayed = true;
+                  void queue.play();
+                }
               });
-              decodePromisesRef.current.push(p);
             },
             onChunkFailed: ({ index, message }) => {
               console.warn(`[useTts] chunk ${index + 1} failed:`, message);
+              queue.markSkipped(index);
             },
           },
           bookId,
@@ -179,20 +195,13 @@ export function useTts(): UseTts {
           return;
         }
 
-        // If all chunks failed, show an error.
         if (result.ok === 0) {
           update({ status: "error", error: "No se pudo sintetizar ningún fragmento." });
           return;
         }
 
-        update({ status: "ready" });
-        // Wait for any in-flight decodeWav promises to finish before playing,
-        // so the concatenated buffer includes every chunk.
-        await Promise.all(decodePromisesRef.current);
-        decodePromisesRef.current = [];
-        // Auto-play: call play() directly instead of via an effect, so the
-        // onended handler (which also sets "ready") doesn't loop.
-        playRef.current?.();
+        // Tell the queue no more chunks are coming.
+        queue.close();
       } catch (err) {
         update({
           status: "error",
@@ -204,78 +213,25 @@ export function useTts(): UseTts {
   );
 
   const play = useCallback(() => {
-    // Filter out holes (failed chunks leave empty slots in the pre-allocated array).
-    const buffers = audioBuffersRef.current.filter(Boolean);
-    if (buffers.length === 0) return;
-
-    const ctx = getAudioContext();
-    if (ctx.state === "suspended") ctx.resume();
-
-    // Concatenate all decoded buffers into one AudioBuffer for gapless playback.
-    // For the tracer bullet this is fine; #10 (streaming queue) will schedule
-    // chunks individually for seek support.
-    const totalLength = buffers.reduce((acc, b) => acc + b.length, 0);
-    const sampleRate = buffers[0].sampleRate;
-    const combined = ctx.createBuffer(1, totalLength, sampleRate);
-    const channelData = combined.getChannelData(0);
-    let offset = 0;
-    for (const buf of buffers) {
-      channelData.set(buf.getChannelData(0), offset);
-      offset += buf.length;
-    }
-
-    const source = ctx.createBufferSource();
-    source.buffer = combined;
-    source.connect(ctx.destination);
-
-    // Apply playback speed. The AudioContext clock runs at real-time, so
-    // position tracking divides elapsed by speed to get the audio's internal
-    // position. TODO(#10): the streaming queue will handle live speed changes
-    // by re-scheduling; for now this applies at play start.
-    source.playbackRate.value = state.speed;
-
-    const offsetSeconds = playOffsetRef.current;
-    source.start(0, offsetSeconds);
-    // Adjust start time so position tracking accounts for speed.
-    playStartTimeRef.current = ctx.currentTime - offsetSeconds / state.speed;
-    sourceNodeRef.current = source;
-
-    source.onended = () => {
-      // Playback finished naturally.
-      if (sourceNodeRef.current === source) {
-        playOffsetRef.current = 0;
-        sourceNodeRef.current = null;
-        update({ status: "ready", isPlaying: false, currentPosition: 0 });
-      }
-    };
-
-    update({ status: "playing", isPlaying: true });
-  }, [update, state.speed]);
+    queueRef.current?.play();
+  }, []);
 
   const pause = useCallback(() => {
-    const source = sourceNodeRef.current;
-    const ctx = getAudioContext();
-    if (!source) return;
+    queueRef.current?.pause();
+  }, []);
 
-    // Calculate how far we've played in audio time (real-time / speed), then stop.
-    const elapsedReal = ctx.currentTime - playStartTimeRef.current;
-    const elapsedAudio = elapsedReal * source.playbackRate.value;
-    playOffsetRef.current = Math.min(
-      elapsedAudio,
-      audioBuffersRef.current.filter(Boolean).reduce((a, b) => a + b.duration, 0),
-    );
-    source.stop();
-    sourceNodeRef.current = null;
+  const seek = useCallback((time: number) => {
+    queueRef.current?.seek(time);
+  }, []);
 
-    update({ status: "paused", isPlaying: false, currentPosition: playOffsetRef.current });
-  }, [update]);
+  const seekToChunk = useCallback((index: number) => {
+    queueRef.current?.seekToChunk(index);
+  }, []);
 
   const cancel = useCallback(() => {
     clientRef.current?.cancel();
-    sourceNodeRef.current?.stop();
-    sourceNodeRef.current = null;
-    audioBuffersRef.current = [];
-    playOffsetRef.current = 0;
+    queueRef.current?.stop();
+    queueRef.current = null;
     update({
       status: "idle",
       chunksDone: 0,
@@ -283,45 +239,22 @@ export function useTts(): UseTts {
       isPlaying: false,
       currentPosition: 0,
       duration: 0,
-      chunkDurations: [],
+      activeChunkIndex: 0,
     });
   }, [update]);
 
   const reset = useCallback(() => {
     clientRef.current?.cancel();
-    sourceNodeRef.current?.stop();
-    sourceNodeRef.current = null;
-    audioBuffersRef.current = [];
-    playOffsetRef.current = 0;
-    // Preserve user preferences (voice, speed) across resets.
-    setState({ ...IDLE_STATE, voiceId: state.voiceId, speed: state.speed });
-  }, [state.voiceId, state.speed]);
+    queueRef.current?.stop();
+    queueRef.current = null;
+    setState((prev) => ({ ...IDLE_STATE, voiceId: prev.voiceId, speed: prev.speed }));
+  }, []);
 
   const formatPosition = useCallback(
     () => formatDuration(state.currentPosition),
     [state.currentPosition],
   );
   const formatTotal = useCallback(() => formatDuration(state.duration), [state.duration]);
-
-  // Track playback position while playing. Audio position = real-time elapsed * speed.
-  useEffect(() => {
-    if (state.status !== "playing") return;
-    let rafId: number;
-    const tick = () => {
-      const ctx = getAudioContext();
-      const elapsedReal = ctx.currentTime - playStartTimeRef.current;
-      const elapsedAudio = elapsedReal * state.speed;
-      setState((prev) => ({ ...prev, currentPosition: Math.min(elapsedAudio, prev.duration) }));
-      rafId = requestAnimationFrame(tick);
-    };
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
-  }, [state.status, state.speed]);
-
-  // Keep playRef in sync so synthesize can call play() without a circular dep.
-  useEffect(() => {
-    playRef.current = play;
-  }, [play]);
 
   return {
     ...state,
@@ -330,9 +263,27 @@ export function useTts(): UseTts {
     synthesize,
     play,
     pause,
+    seek,
+    seekToChunk,
     cancel,
     reset,
     formatPosition,
     formatTotal,
   };
+}
+
+/** Maps PlaybackQueue states to TtsStatus. */
+function mapQueueState(qs: PlaybackState): TtsStatus {
+  switch (qs) {
+    case PlaybackState.PLAYING:
+      return "playing";
+    case PlaybackState.BUFFERING:
+      return "buffering";
+    case PlaybackState.PAUSED:
+      return "paused";
+    case PlaybackState.DONE:
+      return "done";
+    default:
+      return "idle";
+  }
 }
