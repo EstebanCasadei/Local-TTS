@@ -125,28 +125,36 @@ export function useTts(): UseTts {
         activeChunkIndex: 0,
       });
 
-      // Create the playback queue. Chunks will be pushed as they arrive —
-      // playback starts as soon as the first chunk is decoded, not after all
-      // chunks are done. This is the streaming improvement over the old
-      // "concat all buffers then play" approach.
-      const ctx = getAudioContext();
-      const queue = new PlaybackQueue(ctx, {
-        onChange: (snap: PlaybackSnapshot) => {
-          const status = mapQueueState(snap.state);
-          setState((prev) => ({
-            ...prev,
-            status,
-            isPlaying: snap.playing,
-            currentPosition: snap.position,
-            duration: snap.duration,
-            activeChunkIndex: snap.index,
-          }));
-        },
-      });
-      queue.setPlan(chunks.length);
-      queueRef.current = queue;
-
+      // The queue is created lazily after the first chunk decodes, because
+      // decodeWav() may close and recreate the AudioContext at a different
+      // sample rate (Piper outputs 16kHz or 22.05kHz depending on the voice).
+      // If we created the queue upfront with the wrong context, all
+      // source.start() calls would silently fail on a closed context.
+      let queue: PlaybackQueue | null = null;
       let firstChunkPlayed = false;
+
+      const ensureQueue = () => {
+        if (queue) return queue;
+        // getAudioContext() now returns the context at the correct sample rate
+        // (decodeWav already called it with the WAV's sample rate).
+        const ctx = getAudioContext();
+        queue = new PlaybackQueue(ctx, {
+          onChange: (snap: PlaybackSnapshot) => {
+            const status = mapQueueState(snap.state);
+            setState((prev) => ({
+              ...prev,
+              status,
+              isPlaying: snap.playing,
+              currentPosition: snap.position,
+              duration: snap.duration,
+              activeChunkIndex: snap.index,
+            }));
+          },
+        });
+        queue.setPlan(chunks.length);
+        queueRef.current = queue;
+        return queue;
+      };
 
       try {
         const result = await client.synthesize(
@@ -167,7 +175,8 @@ export function useTts(): UseTts {
               // it on the AudioContext clock. If it's the first chunk, the
               // queue starts playing right away (streaming).
               decodeWav(wav).then((buffer) => {
-                queue.push(index, buffer);
+                const q = ensureQueue();
+                q.push(index, buffer);
                 setState((prev) => ({
                   ...prev,
                   chunksDone: prev.chunksDone + 1,
@@ -177,13 +186,13 @@ export function useTts(): UseTts {
                 // synthesize call, so AudioContext can resume).
                 if (!firstChunkPlayed) {
                   firstChunkPlayed = true;
-                  void queue.play();
+                  void q.play();
                 }
               });
             },
             onChunkFailed: ({ index, message }) => {
               console.warn(`[useTts] chunk ${index + 1} failed:`, message);
-              queue.markSkipped(index);
+              queue?.markSkipped(index);
             },
           },
           bookId,
@@ -201,7 +210,7 @@ export function useTts(): UseTts {
         }
 
         // Tell the queue no more chunks are coming.
-        queue.close();
+        queue?.close();
       } catch (err) {
         update({
           status: "error",
