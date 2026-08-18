@@ -81,14 +81,19 @@ export function TracerPage() {
 
       {/* Action buttons */}
       <div className="flex w-full max-w-md gap-3">
-        {tts.status === "playing" || tts.status === "paused" || tts.status === "ready" ? (
+        {tts.status === "playing" ||
+        tts.status === "paused" ||
+        tts.status === "done" ||
+        tts.status === "buffering" ? (
           <>
             <button
               className="flex-1 rounded-lg border border-indigo-400 bg-indigo-400/20 py-3 text-sm transition-colors hover:bg-indigo-400/30"
-              onClick={tts.status === "playing" ? tts.pause : tts.play}
+              onClick={
+                tts.status === "playing" || tts.status === "buffering" ? tts.pause : tts.play
+              }
               type="button"
             >
-              {tts.status === "playing" ? "⏸ Pausar" : "▶ Reproducir"}
+              {tts.status === "playing" || tts.status === "buffering" ? "⏸ Pausar" : "▶ Reproducir"}
             </button>
             <button
               className="rounded-lg border border-gray-700 px-4 py-3 text-sm text-gray-400 transition-colors hover:text-gray-200"
@@ -122,7 +127,7 @@ export function TracerPage() {
       </div>
 
       {/* Progress / status feedback */}
-      {(isBusy || tts.status === "ready") && (
+      {(isBusy || tts.status === "buffering") && (
         <div className="w-full max-w-md">
           {tts.status === "downloading-voice" && (
             <div className="text-center">
@@ -155,23 +160,18 @@ export function TracerPage() {
             </div>
           )}
 
-          {tts.status === "ready" && (
+          {tts.status === "buffering" && (
             <div className="text-center">
-              <p className="text-sm text-gray-200">
-                ✓ {tts.chunksDone} fragmentos listos · {tts.formatTotal()}
+              <p className="text-sm text-gray-400">
+                Preparando audio… {tts.chunksDone}/{tts.chunksTotal} fragmentos
               </p>
-              {tts.chunksDone < tts.chunksTotal && (
-                <p className="mt-1 text-xs text-gray-500">
-                  {tts.chunksTotal - tts.chunksDone} fragmentos fallaron
-                </p>
-              )}
             </div>
           )}
         </div>
       )}
 
       {/* Playback position while playing/paused */}
-      {(tts.status === "playing" || tts.status === "paused") && (
+      {(tts.status === "playing" || tts.status === "paused" || tts.status === "buffering") && (
         <div className="w-full max-w-md text-center">
           <p className="text-sm text-gray-400">
             {tts.formatPosition()} / {tts.formatTotal()}

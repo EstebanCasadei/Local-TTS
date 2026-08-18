@@ -46,27 +46,13 @@ export function ReadingPage() {
   }, [bookId]);
 
   // Convert repository Chunk[] to KaraokeChunk[] for the KaraokeText component.
-  // For now all chunks share the same time range; real timing comes with #10
-  // (streaming playback queue). The active index is derived from TTS progress.
   const karaokeChunks: KaraokeChunk[] = useMemo(
     () => chunks.map((c) => ({ text: c.texto + " ", start: 0, end: 0 })),
     [chunks],
   );
 
-  // Track active chunk index from playback position using real per-chunk
-  // durations (not an even split — chunks vary in length, so an even split
-  // makes the highlight race through short chunks and lag on long ones).
-  // #10 (streaming queue) will track this precisely per chunk at the source.
-  const activeIndex = useMemo(() => {
-    if (tts.status !== "playing" && tts.status !== "paused") return 0;
-    if (tts.chunkDurations.length === 0) return 0;
-    let elapsed = 0;
-    for (let i = 0; i < tts.chunkDurations.length; i++) {
-      elapsed += tts.chunkDurations[i];
-      if (tts.currentPosition < elapsed) return i;
-    }
-    return tts.chunkDurations.length - 1;
-  }, [tts.status, tts.currentPosition, tts.chunkDurations]);
+  // The streaming queue reports the exact active chunk index — no estimation.
+  const activeIndex = tts.activeChunkIndex;
 
   // When chunks load and TTS is idle, synthesize them.
   // Pass bookId + chunkIds so the worker can check the OPFS cache and skip
@@ -177,12 +163,16 @@ export function ReadingPage() {
       </div>
 
       {/* TTS synthesis progress overlay */}
-      {(tts.status === "downloading-voice" || tts.status === "synthesizing") && (
+      {(tts.status === "downloading-voice" ||
+        tts.status === "synthesizing" ||
+        tts.status === "buffering") && (
         <div className="bg-bg-secondary border-t border-border-primary px-4 py-2 text-center">
           <p className="font-p text-text-secondary">
             {tts.status === "downloading-voice"
               ? `Descargando voz… ${tts.downloadProgress != null ? `${Math.round(tts.downloadProgress * 100)}%` : ""}`
-              : `Sintetizando… ${tts.chunksDone}/${tts.chunksTotal}`}
+              : tts.status === "buffering"
+                ? `Preparando audio… ${tts.chunksDone}/${tts.chunksTotal} fragmentos`
+                : `Sintetizando… ${tts.chunksDone}/${tts.chunksTotal}`}
           </p>
         </div>
       )}
@@ -207,11 +197,11 @@ export function ReadingPage() {
         onOpenVoices={() => setPanel("voices")}
         onSpeedChange={tts.setSpeed}
         onToggle={() => {
-          if (tts.status === "idle" || tts.status === "error") {
+          if (tts.status === "idle" || tts.status === "error" || tts.status === "done") {
             handleRead();
-          } else if (tts.status === "playing") {
+          } else if (tts.status === "playing" || tts.status === "buffering") {
             tts.pause();
-          } else if (tts.status === "paused" || tts.status === "ready") {
+          } else if (tts.status === "paused") {
             tts.play();
           }
         }}
