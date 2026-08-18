@@ -210,7 +210,8 @@ export function useTts(): UseTts {
         }
 
         // Tell the queue no more chunks are coming.
-        queue?.close();
+        const q = queueRef.current as PlaybackQueue | null;
+        q?.close();
       } catch (err) {
         update({
           status: "error",
