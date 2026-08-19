@@ -31,6 +31,7 @@ export function useProgress(params: {
   const positionRef = useRef(position);
   const activeChunkIndexRef = useRef(activeChunkIndex);
   const isPlayingRef = useRef(isPlaying);
+  const wasPlayingRef = useRef(false);
 
   positionRef.current = position;
   activeChunkIndexRef.current = activeChunkIndex;
@@ -45,6 +46,10 @@ export function useProgress(params: {
     const idx = activeChunkIndexRef.current;
     const chunkId = chunkIds[idx];
     if (!chunkId) return;
+
+    // Don't save if position is 0 — it means playback hasn't started or was
+    // reset. Saving here would overwrite real progress with a fresh start.
+    if (positionRef.current <= 0) return;
 
     const progress: Progress = {
       bookId,
@@ -69,17 +74,23 @@ export function useProgress(params: {
     return () => clearInterval(interval);
   }, [bookId]);
 
-  // Save on pause.
+  // Save exactly once when playback transitions from playing → paused.
+  // Using wasPlayingRef to detect the transition, not position in the
+  // dependency array — position changes while paused would re-trigger
+  // the save and potentially overwrite with stale data.
   useEffect(() => {
-    if (!isPlaying && bookId && position > 0) {
+    if (wasPlayingRef.current && !isPlaying && bookId) {
       saveNow.current?.();
     }
-  }, [isPlaying, bookId, position]);
+    wasPlayingRef.current = isPlaying;
+  }, [isPlaying, bookId]);
 
-  // Save on unmount.
+  // Save on unmount — but only if we were playing (didn't already save on pause).
   useEffect(() => {
     return () => {
-      saveNow.current?.();
+      if (isPlayingRef.current) {
+        saveNow.current?.();
+      }
     };
   }, [bookId]);
 }
