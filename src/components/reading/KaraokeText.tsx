@@ -60,7 +60,6 @@ function buildTokens(
     const words = raw.filter((t) => !/^\s+$/.test(t));
     const chunkChars = words.reduce((s, w) => s + w.length, 0);
 
-    const fallbackStart = (globalCharOffset / totalChars) * duration;
     const fallbackDuration = (chunkChars / totalChars) * duration;
 
     const hasRealStart = chunkStartTimes[i] != null;
