@@ -71,11 +71,15 @@ export async function decodeWav(wav: ArrayBuffer): Promise<AudioBuffer> {
 }
 
 /**
- * Formats seconds as mm:ss.
+ * Formats seconds as H:MM:SS when there are hours, otherwise MM:SS.
  */
 export function formatDuration(seconds: number): string {
   const total = Math.round(seconds);
-  const m = String(Math.floor(total / 60)).padStart(2, "0");
-  const s = String(total % 60).padStart(2, "0");
-  return `${m}:${s}`;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mStr = String(m).padStart(2, "0");
+  const sStr = String(s).padStart(2, "0");
+  if (h > 0) return `${h}:${mStr}:${sStr}`;
+  return `${mStr}:${sStr}`;
 }
