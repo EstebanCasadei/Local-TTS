@@ -198,11 +198,16 @@ export class PlaybackQueue {
   async seekToChunk(index: number, localTime = 0): Promise<number> {
     if (index < 0 || index >= this.total) return -1;
 
-    // Calculate the global time of this chunk's start.
+    // Calculate the global time of this chunk's start, and set chunkStartTimes
+    // for all chunks we visit. This is critical for the karaoke: without real
+    // start times for past chunks, it falls back to proportional distribution
+    // which places them at wrong positions — causing the highlight to jump
+    // to a previous sentence after a few seconds of playback.
     let globalTime = 0;
     for (let i = 0; i < index; i++) {
       const buf = this.buffers.get(i);
       if (!buf) break;
+      this.chunkStartTimes[i] = globalTime;
       globalTime += buf.duration + (this.gaps.get(i) ?? this.gap);
     }
 
