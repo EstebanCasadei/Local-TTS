@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildPageLines, detectColumnSplit, groupPagesIntoChapters } from "./pdfLayout";
-import type { PageLines, PdfTextItem } from "./pdfLayout";
+import { buildPageLines, detectColumnSplit } from "./pdfLayout";
+import type { PdfTextItem } from "./pdfLayout";
 
 /** Builds a fake pdfjs TextItem. x/y are baseline coordinates, in PDF user space. */
 function item(str: string, x: number, y: number, fontSize = 10): PdfTextItem {
@@ -82,70 +82,5 @@ describe("detectColumnSplit", () => {
       item("Un titulo que cruza todo el ancho de la pagina de lado a lado", 20, 720, 16),
     ];
     expect(detectColumnSplit(items, 600)).toBeNull();
-  });
-});
-
-describe("groupPagesIntoChapters", () => {
-  it("returns one chapter per page when no headings are found", () => {
-    const pages: PageLines[] = [
-      { pageNumber: 1, lines: [{ text: "Texto pagina 1", x: 0, xEnd: 100, y: 100, fontSize: 10 }] },
-      { pageNumber: 2, lines: [{ text: "Texto pagina 2", x: 0, xEnd: 100, y: 100, fontSize: 10 }] },
-    ];
-    const chapters = groupPagesIntoChapters(pages);
-    expect(chapters).toHaveLength(2);
-    expect(chapters[0]).toEqual({
-      title: null,
-      blocks: [{ text: "Texto pagina 1", page: 1 }],
-    });
-    expect(chapters[1].blocks[0].page).toBe(2);
-  });
-
-  it("starts a new chapter at each heading-sized line", () => {
-    const pages: PageLines[] = [
-      {
-        pageNumber: 1,
-        lines: [
-          { text: "Capitulo Uno", x: 0, xEnd: 100, y: 700, fontSize: 20 },
-          { text: "Cuerpo del capitulo uno.", x: 0, xEnd: 100, y: 680, fontSize: 10 },
-          { text: "Mas cuerpo.", x: 0, xEnd: 100, y: 660, fontSize: 10 },
-        ],
-      },
-      {
-        pageNumber: 2,
-        lines: [
-          { text: "Capitulo Dos", x: 0, xEnd: 100, y: 700, fontSize: 20 },
-          { text: "Cuerpo del capitulo dos.", x: 0, xEnd: 100, y: 680, fontSize: 10 },
-        ],
-      },
-    ];
-    const chapters = groupPagesIntoChapters(pages);
-    expect(chapters).toHaveLength(2);
-    expect(chapters[0].title).toBe("Capitulo Uno");
-    expect(chapters[0].blocks).toEqual([
-      { text: "Cuerpo del capitulo uno.\nMas cuerpo.", page: 1 },
-    ]);
-    expect(chapters[1].title).toBe("Capitulo Dos");
-    expect(chapters[1].blocks).toEqual([{ text: "Cuerpo del capitulo dos.", page: 2 }]);
-  });
-
-  it("ignores standalone page numbers as headings even if enlarged", () => {
-    const pages: PageLines[] = [
-      {
-        pageNumber: 1,
-        lines: [
-          { text: "1", x: 0, xEnd: 20, y: 700, fontSize: 20 },
-          { text: "Primera linea del cuerpo.", x: 0, xEnd: 100, y: 680, fontSize: 10 },
-          { text: "Segunda linea del cuerpo.", x: 0, xEnd: 100, y: 660, fontSize: 10 },
-          { text: "Tercera linea del cuerpo.", x: 0, xEnd: 100, y: 640, fontSize: 10 },
-        ],
-      },
-    ];
-    const chapters = groupPagesIntoChapters(pages);
-    expect(chapters).toHaveLength(1);
-    expect(chapters[0].title).toBeNull();
-  });
-
-  it("returns an empty array for no pages", () => {
-    expect(groupPagesIntoChapters([])).toEqual([]);
   });
 });

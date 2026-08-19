@@ -1,11 +1,10 @@
 // Pure layout helpers for PDF text extraction: reconstructing reading order
-// from pdfjs text items (line grouping + basic multi-column detection), and
-// grouping pages into chapters via heading heuristics.
+// from pdfjs text items (line grouping + basic multi-column detection).
+// Chapter division uses the PDF's own outline (see pdf.ts) instead of a
+// heuristic — far more reliable than guessing headings by font size.
 //
 // Kept free of pdfjs-dist itself (only a minimal item shape is needed) so it
 // stays fast and easy to unit test without loading the real library.
-
-import type { RawChapter } from "./types";
 
 /** Minimal shape of a pdfjs TextItem we rely on. */
 export interface PdfTextItem {
@@ -14,18 +13,12 @@ export interface PdfTextItem {
   width: number;
 }
 
-/** A reconstructed line of text with its position and dominant font size. */
+/** A reconstructed line of text with its position. */
 export interface Line {
   text: string;
   x: number;
   xEnd: number;
   y: number;
-  fontSize: number;
-}
-
-export interface PageLines {
-  pageNumber: number;
-  lines: Line[];
 }
 
 /** Max vertical offset (PDF user-space units) for items to be on the same line. */
@@ -34,17 +27,12 @@ const Y_TOLERANCE = 2;
 const GUTTER_RATIO = 0.06;
 /** Minimum items a half must have to be considered a real column. */
 const MIN_COLUMN_ITEMS = 4;
-/** A line's font size must be at least this many times the dominant body size to count as a heading. */
-const HEADING_FONT_RATIO = 1.15;
-/** Headings longer than this are treated as regular paragraph text instead. */
-const HEADING_MAX_CHARS = 90;
 
 interface NormalizedItem {
   text: string;
   x: number;
   xEnd: number;
   y: number;
-  fontSize: number;
 }
 
 function normalize(items: PdfTextItem[]): NormalizedItem[] {
@@ -55,7 +43,6 @@ function normalize(items: PdfTextItem[]): NormalizedItem[] {
       x: item.transform[4],
       xEnd: item.transform[4] + item.width,
       y: item.transform[5],
-      fontSize: Math.hypot(item.transform[2], item.transform[3]) || 1,
     }));
 }
 
@@ -69,7 +56,6 @@ function groupIntoLines(items: NormalizedItem[]): Line[] {
       const needsSpace = item.x - last.xEnd > 1 && !last.text.endsWith(" ");
       last.text += `${needsSpace ? " " : ""}${item.text}`;
       last.xEnd = Math.max(last.xEnd, item.xEnd);
-      last.fontSize = Math.max(last.fontSize, item.fontSize);
     } else {
       lines.push({ ...item });
     }
@@ -114,78 +100,4 @@ export function buildPageLines(items: PdfTextItem[], pageWidth: number): Line[] 
   const left = normalized.filter((item) => (item.x + item.xEnd) / 2 < split);
   const right = normalized.filter((item) => (item.x + item.xEnd) / 2 >= split);
   return [...groupIntoLines(left), ...groupIntoLines(right)];
-}
-
-/** The document's dominant (most common) line font size — assumed to be body text. */
-function dominantFontSize(pages: PageLines[]): number {
-  const counts = new Map<number, number>();
-  for (const page of pages) {
-    for (const line of page.lines) {
-      const rounded = Math.round(line.fontSize * 2) / 2;
-      counts.set(rounded, (counts.get(rounded) ?? 0) + 1);
-    }
-  }
-
-  let mode = 0;
-  let best = -1;
-  for (const [size, count] of counts) {
-    if (count > best) {
-      best = count;
-      mode = size;
-    }
-  }
-  return mode || 10;
-}
-
-function isHeadingLine(line: Line, baseFontSize: number): boolean {
-  const text = line.text.trim();
-  if (!text || text.length > HEADING_MAX_CHARS) return false;
-  if (/^\d+$/.test(text)) return false;
-  return line.fontSize >= baseFontSize * HEADING_FONT_RATIO;
-}
-
-/**
- * Groups extracted pages into chapters. Chapters break on heading-like lines
- * (rendered in a noticeably larger font than the document's dominant body
- * text). If no headings are found anywhere in the document, falls back to
- * one chapter per page break.
- */
-export function groupPagesIntoChapters(pages: PageLines[]): RawChapter[] {
-  if (pages.length === 0) return [];
-
-  const baseFontSize = dominantFontSize(pages);
-  const hasHeadings = pages.some((page) =>
-    page.lines.some((line) => isHeadingLine(line, baseFontSize)),
-  );
-
-  if (!hasHeadings) {
-    return pages.map((page) => ({
-      title: null,
-      blocks: [{ text: page.lines.map((line) => line.text).join("\n"), page: page.pageNumber }],
-    }));
-  }
-
-  const chapters: RawChapter[] = [];
-  let current: RawChapter = { title: null, blocks: [] };
-
-  for (const page of pages) {
-    let blockLines: string[] = [];
-    for (const line of page.lines) {
-      if (isHeadingLine(line, baseFontSize)) {
-        if (blockLines.length > 0) {
-          current.blocks.push({ text: blockLines.join("\n"), page: page.pageNumber });
-          blockLines = [];
-        }
-        if (current.blocks.length > 0) chapters.push(current);
-        current = { title: line.text.trim(), blocks: [] };
-        continue;
-      }
-      blockLines.push(line.text);
-    }
-    if (blockLines.length > 0) {
-      current.blocks.push({ text: blockLines.join("\n"), page: page.pageNumber });
-    }
-  }
-  chapters.push(current);
-  return chapters;
 }
