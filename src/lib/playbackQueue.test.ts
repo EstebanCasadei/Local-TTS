@@ -114,4 +114,55 @@ describe("PlaybackQueue", () => {
     // not be in BUFFERING state after close + play.
     expect(queue.stateValue).toBe(PlaybackState.IDLE);
   });
+
+  it("can seek after close() — close means no more chunks, not playback over", async () => {
+    const ctx = createMockCtx();
+    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    queue.setPlan(3);
+    queue.push(0, createMockBuffer(2));
+    queue.push(1, createMockBuffer(3));
+    queue.push(2, createMockBuffer(1));
+    queue.close();
+
+    // Seeking must work after close — this is the common case where all chunks
+    // are cached and close() is called immediately. The user can still change
+    // speed or scrub.
+    const result = await queue.seek(1);
+    expect(result).not.toBe(-1);
+  });
+
+  it("can seekToChunk after close()", async () => {
+    const ctx = createMockCtx();
+    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    queue.setPlan(3);
+    queue.push(0, createMockBuffer(2));
+    queue.push(1, createMockBuffer(3));
+    queue.push(2, createMockBuffer(1));
+    queue.close();
+
+    const result = await queue.seekToChunk(1);
+    expect(result).toBe(1);
+  });
+
+  it("clearScheduled preserves chunkStartTimes for already-played chunks", async () => {
+    const ctx = createMockCtx();
+    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    queue.setPlan(3);
+    queue.push(0, createMockBuffer(2));
+    queue.push(1, createMockBuffer(3));
+    queue.push(2, createMockBuffer(1));
+
+    // Simulate playing from the start so pump fills chunkStartTimes
+    await queue.play();
+    expect(queue.timeAtChunk(0)).toBe(0);
+    expect(queue.timeAtChunk(1)).toBeCloseTo(2 + 0.03, 2); // 2s + gap
+
+    // Seek to time=5 (mid-chunk-1) — clearScheduled runs inside seek.
+    // chunkStartTimes[0] must be preserved so the karaoke can mark chunk 0
+    // as "past" with correct timing. Without the fix, it would be undefined
+    // and the fallback would distribute it incorrectly across the timeline.
+    await queue.seek(5);
+
+    expect(queue.timeAtChunk(0)).toBe(0); // preserved, not undefined
+  });
 });

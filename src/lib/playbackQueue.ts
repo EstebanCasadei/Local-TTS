@@ -34,6 +34,7 @@ export interface PlaybackSnapshot {
   index: number; // currently playing chunk index
   total: number;
   playing: boolean;
+  chunkStartTimes: (number | undefined)[];
 }
 
 export interface PlaybackQueueOptions {
@@ -69,7 +70,6 @@ export class PlaybackQueue {
   private nextIndex = 0;
   private scheduledUntil = 0; // ctx time when scheduled audio ends
   private timelineEnd = 0; // audio-internal time of the end of scheduled audio
-  private closed = false;
   private wantPlay = false;
   private state: PlaybackState = PlaybackState.IDLE;
   private ticker: ReturnType<typeof setInterval> | null = null;
@@ -77,6 +77,8 @@ export class PlaybackQueue {
 
   /** Start time of each chunk in the audio's internal timeline. */
   private chunkStartTimes: number[] = [];
+  /** Cached snapshot of chunkStartTimes — only rebuilt when values change. */
+  private chunkStartTimesSnapshot: (number | undefined)[] = [];
 
   constructor(ctx: AudioContext, options: PlaybackQueueOptions = {}) {
     this.ctx = ctx;
@@ -118,7 +120,6 @@ export class PlaybackQueue {
 
   /** No more chunks will arrive — skip anything missing. */
   close(): void {
-    this.closed = true;
     for (let i = 0; i < this.total; i++) {
       if (!this.buffers.has(i) && i >= this.nextIndex) this.skipped.add(i);
     }
@@ -146,9 +147,6 @@ export class PlaybackQueue {
 
   /** Seeks to a global position in seconds, re-scheduling from that point. */
   async seek(time: number): Promise<number> {
-    // Note: we do NOT check this.closed here — close() means "no more chunks
-    // will arrive", not "playback is over". Seeking must work after close()
-    // so the user can change speed or scrub even when all chunks are cached.
     if (!this.total || time < 0) return -1;
 
     let offset = 0;
@@ -191,7 +189,7 @@ export class PlaybackQueue {
 
   /** Seeks to a specific chunk index (e.g. clicking a word in karaoke). */
   async seekToChunk(index: number, localTime = 0): Promise<number> {
-    if (this.closed || index < 0 || index >= this.total) return -1;
+    if (index < 0 || index >= this.total) return -1;
 
     // Calculate the global time of this chunk's start.
     let globalTime = 0;
@@ -281,9 +279,21 @@ export class PlaybackQueue {
         // Currently playing this entry.
         return entry.offset + localStart + (t - entry.startTime) * this.rate;
       }
-      // Not yet reached this entry — position is at the end of the previous one.
-      break;
+      // Not yet reached this entry — it was just scheduled by pump() with a
+      // small lead time (SCHEDULE_LEAD). Return the position where playback
+      // is about to resume, not 0. Without this, a seek/rate change causes a
+      // one-frame flash to position 0 (start of sentence) before the source
+      // starts playing and position jumps back to the correct value.
+      return entry.offset + localStart;
     }
+    // Nothing scheduled — this happens right after a seek while paused, since
+    // pump() (which schedules entries) only runs when wantPlay is true. Report
+    // the position we seeked to instead of falling through to 0, otherwise the
+    // karaoke highlight flashes to the first word until playback resumes.
+    if (this.scheduled.length === 0 && this.nextIndex < this.total) {
+      return this.timelineEnd + this.pendingLocalOffset;
+    }
+
     // Nothing currently playing — return the end of the last finished entry.
     const lastDone = [...this.scheduled].reverse().find((e) => t >= e.endTime);
     return lastDone ? lastDone.offset + (lastDone.localStart ?? 0) + lastDone.playDuration : 0;
@@ -349,6 +359,13 @@ export class PlaybackQueue {
         playDuration,
       };
       this.scheduled.push(entry);
+      // chunkStartTimes is the start of the chunk BUFFER in the audio timeline,
+      // NOT where playback resumes within the chunk. The position getter
+      // already adds localStart (entry.offset + localStart), so word timing
+      // must be distributed across the full chunk — otherwise seeking to
+      // mid-chunk shifts all word start times to the seek position, making
+      // the first word appear "active" (a flash to sentence start on speed
+      // change).
       this.chunkStartTimes[index] = timelineEnd;
       this.sources.add(source);
       source.onended = () => {
@@ -377,7 +394,10 @@ export class PlaybackQueue {
     }
     this.sources.clear();
     this.scheduled = [];
-    this.chunkStartTimes = new Array(this.total);
+    // Do NOT reset chunkStartTimes here — already-played chunks retain their
+    // start times so the karaoke can still compute correct word timing for
+    // them after a seek/rate change. pump() will overwrite entries from
+    // nextIndex onward. stop() resets chunkStartTimes to [] explicitly.
     this.scheduledUntil = 0;
     // Re-add all buffers to entries so pump() can re-schedule them.
     for (const [index, buffer] of this.buffers) {
@@ -414,6 +434,31 @@ export class PlaybackQueue {
     this.notify();
   }
 
+  /**
+   * Returns a snapshot of chunkStartTimes, creating a new array only when the
+   * values have changed since the last call. This keeps the array reference
+   * stable across ticks (which fire every 100ms) so that React useMemo in
+   * KaraokeText doesn't recompute tokens on every tick when nothing changed.
+   */
+  private getChunkStartTimesSnapshot(): (number | undefined)[] {
+    const current = this.chunkStartTimes;
+    const cached = this.chunkStartTimesSnapshot;
+
+    if (current.length === cached.length) {
+      let changed = false;
+      for (let i = 0; i < current.length; i++) {
+        if (current[i] !== cached[i]) {
+          changed = true;
+          break;
+        }
+      }
+      if (!changed) return cached;
+    }
+
+    this.chunkStartTimesSnapshot = [...current];
+    return this.chunkStartTimesSnapshot;
+  }
+
   private notify(): void {
     this.onChange?.({
       state: this.state,
@@ -422,6 +467,7 @@ export class PlaybackQueue {
       index: this.currentIndex,
       total: this.total,
       playing: this.wantPlay,
+      chunkStartTimes: this.getChunkStartTimesSnapshot(),
     });
   }
 }

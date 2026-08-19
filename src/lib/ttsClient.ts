@@ -51,15 +51,29 @@ export interface SynthesizeCallbacks {
   onChunkFailed?: (c: ChunkFailed) => void;
 }
 
-export class TtsClient {
-  private worker: Worker | null = null;
-  private nextId = 1;
+// Shared across all TtsClient instances (rather than one per instance) so the
+// Piper model session loaded inside the worker (see tts.worker.ts's `session`
+// cache) survives across documents. useTts() creates/tears down a TtsClient
+// on every ReadingPage mount; terminating the worker each time would force a
+// full model reload for every new document.
+let sharedWorker: Worker | null = null;
 
+function getSharedWorker(): Worker {
+  if (!sharedWorker) {
+    sharedWorker = new Worker(new URL("./tts.worker.ts", import.meta.url), { type: "module" });
+  }
+  return sharedWorker;
+}
+
+// Request IDs must be unique across the shared worker's whole message stream,
+// not just within one TtsClient — otherwise a new TtsClient (nextId reset to
+// 1) can reuse an ID still in flight from a previous instance's request, and
+// both instances' listeners react to each other's messages.
+let nextRequestId = 1;
+
+export class TtsClient {
   private getWorker(): Worker {
-    if (!this.worker) {
-      this.worker = new Worker(new URL("./tts.worker.ts", import.meta.url), { type: "module" });
-    }
-    return this.worker;
+    return getSharedWorker();
   }
 
   /**
@@ -72,7 +86,7 @@ export class TtsClient {
     onMessage?: (data: Record<string, unknown>) => void,
   ): Promise<Record<string, unknown>> {
     const w = this.getWorker();
-    const id = this.nextId++;
+    const id = nextRequestId++;
 
     return new Promise((resolve, reject) => {
       const onWorkerMessage = (event: MessageEvent) => {
@@ -174,9 +188,10 @@ export class TtsClient {
     this.getWorker().postMessage({ type: "cancel" });
   }
 
-  /** Terminates the worker. Call on unmount to free resources. */
-  dispose(): void {
-    this.worker?.terminate();
-    this.worker = null;
-  }
+  /**
+   * Releases this client. The underlying worker is shared across instances
+   * and stays alive so its loaded model session can be reused — call
+   * `cancel()` first if a synthesis is in flight and should stop.
+   */
+  dispose(): void {}
 }

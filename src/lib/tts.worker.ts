@@ -204,7 +204,17 @@ async function handleSynthesize(
   });
 }
 
-self.addEventListener("message", async (event: MessageEvent) => {
+// The worker is shared across documents (see ttsClient.ts) so the loaded
+// model session can be reused, but download/synthesize state (session,
+// cancelled, activeId) is module-global and assumes only one request runs at
+// a time. Chain requests through this queue so a new document's synthesize
+// call can't start until the previous document's has fully wound down —
+// without it, two concurrent handleSynthesize() calls would race on that
+// shared state (e.g. one call's `cancelled = false` reset racing the other's
+// in-flight loop, or both driving the same WASM session at once).
+let queue: Promise<void> = Promise.resolve();
+
+self.addEventListener("message", (event: MessageEvent) => {
   const { type, id, voiceId, chunks, bookId, chunkIds } = event.data ?? {};
 
   if (type === "cancel") {
@@ -212,17 +222,19 @@ self.addEventListener("message", async (event: MessageEvent) => {
     return;
   }
 
-  activeId = id;
-  try {
-    if (type === "download") await handleDownload(id, voiceId);
-    else if (type === "synthesize") await handleSynthesize(id, voiceId, chunks, bookId, chunkIds);
-    else throw new Error(`Unknown message type: ${type}`);
-  } catch (err) {
-    console.error("[tts-worker]", err);
-    post({
-      type: "error",
-      id,
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
+  queue = queue.then(async () => {
+    activeId = id;
+    try {
+      if (type === "download") await handleDownload(id, voiceId);
+      else if (type === "synthesize") await handleSynthesize(id, voiceId, chunks, bookId, chunkIds);
+      else throw new Error(`Unknown message type: ${type}`);
+    } catch (err) {
+      console.error("[tts-worker]", err);
+      post({
+        type: "error",
+        id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
 });

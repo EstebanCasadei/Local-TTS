@@ -13,11 +13,11 @@ import {
 import { useBook } from "../hooks/useBook.ts";
 import { useTts } from "../hooks/useTts.ts";
 import { getBookRepository } from "../lib/books";
+import { chunkText } from "../lib/chunker";
 import BookmarkIcon from "../icons/BookmarkIcon.svg?react";
 import ChevronUpIcon from "../icons/ChevronUpIcon.svg?react";
 import MusicIcon from "../icons/MusicIcon.svg?react";
 import SleepIcon from "../icons/SleepIcon.svg?react";
-import type { KaraokeChunk } from "../types/reading.ts";
 
 /** Alto de la pestaña con la flecha: es lo único que asoma con el panel cerrado. */
 const HANDLE_HEIGHT = "2.25rem";
@@ -45,21 +45,24 @@ export function ReadingPage() {
       });
   }, [bookId]);
 
-  // Convert repository Chunk[] to KaraokeChunk[] for the KaraokeText component.
-  const karaokeChunks: KaraokeChunk[] = useMemo(
-    () => chunks.map((c) => ({ text: c.texto + " ", start: 0, end: 0 })),
-    [chunks],
-  );
+  // Full text of the document, used for both TTS and word-level karaoke.
+  const allText = useMemo(() => chunks.map((c) => c.texto).join("\n"), [chunks]);
 
-  // The streaming queue reports the exact active chunk index — no estimation.
-  const activeIndex = tts.activeChunkIndex;
+  // Pre-compute synthesis chunks so the karaoke text has the same format
+  // before and after the user clicks play. Without this, the text shows as
+  // one big block (with paragraph breaks) before play, then re-formats into
+  // sentence-level chunks (with spaces) after play — a visible format change.
+  // chunkText is deterministic, so this matches what useTts.synthesize computes.
+  const karaokeChunks = useMemo(
+    () => (tts.synthesisChunks.length > 0 ? tts.synthesisChunks : chunkText(allText)),
+    [tts.synthesisChunks, allText],
+  );
 
   // When chunks load and TTS is idle, synthesize them.
   // Pass bookId + chunkIds so the worker can check the OPFS cache and skip
   // synthesis for already-generated audio.
   const handleRead = () => {
     if (chunks.length === 0) return;
-    const allText = chunks.map((c) => c.texto).join("\n");
     const chunkIds = chunks.map((c) => c.id);
     tts.reset();
     void tts.synthesize(allText, bookId ?? undefined, chunkIds);
@@ -145,7 +148,7 @@ export function ReadingPage() {
             className="flex min-h-0 flex-1 flex-col gap-4 bg-bg-primary p-4 md:p-8"
             inert={!expanded}
           >
-            <div className="mx-auto max-w-[1100px] w-full">
+            <div className="mx-auto flex min-h-0 w-full max-w-[1100px] flex-1 flex-col">
               <ReadingHeader
                 chapter="Contenido"
                 estimate={estimate}
@@ -154,8 +157,14 @@ export function ReadingPage() {
                 title={bookTitle || "Documento"}
               />
 
-              <div className="min-h-0 flex-1 overflow-y-auto mt-4">
-                <KaraokeText activeIndex={activeIndex} chunks={karaokeChunks} />
+              <div className="min-h-0 flex-1 mt-4">
+                <KaraokeText
+                  chunkStartTimes={tts.chunkStartTimes}
+                  chunks={karaokeChunks}
+                  duration={tts.duration}
+                  onSeek={tts.seek}
+                  position={tts.currentPosition}
+                />
               </div>
             </div>
           </section>
