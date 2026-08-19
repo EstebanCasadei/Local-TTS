@@ -206,9 +206,18 @@ export class PlaybackQueue {
       globalTime += buf.duration + (this.gaps.get(i) ?? this.gap);
     }
 
+    const targetBuffer = this.buffers.get(index);
+
+    // Clamp localTime to the buffer duration — if it exceeds, the source
+    // would have nothing to play. This can happen if the saved offsetLocal
+    // was computed with a slightly different chunkStartTimes value.
+    const clampedLocalTime = targetBuffer
+      ? Math.min(Math.max(0, localTime), Math.max(0, targetBuffer.duration - 0.01))
+      : Math.max(0, localTime);
+
     this.clearScheduled();
     this.nextIndex = index;
-    this.pendingLocalOffset = Math.max(0, localTime);
+    this.pendingLocalOffset = clampedLocalTime;
     this.timelineEnd = globalTime;
     this.wantPlay = true;
 
@@ -379,7 +388,12 @@ export class PlaybackQueue {
       this.nextIndex++;
     }
 
-    this.pendingLocalOffset = 0;
+    // Only clear pendingLocalOffset if we actually scheduled at least one
+    // chunk. If pump() broke early (next buffer not yet available), we must
+    // keep the offset so it's applied when the buffer arrives via push().
+    if (!first) {
+      this.pendingLocalOffset = 0;
+    }
   }
 
   private clearScheduled(): void {
