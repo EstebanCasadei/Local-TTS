@@ -1,0 +1,105 @@
+import { useEffect, useRef } from "react";
+import { getBookRepository } from "../lib/books";
+import type { Progress } from "../types/book.ts";
+
+const SAVE_INTERVAL_MS = 5000; // debounce: save at most every 5 seconds
+
+/**
+ * Debounced progress saving. Watches the TTS playback position and saves a
+ * Progress record to the repository periodically during playback, on pause,
+ * and on unmount. The repository facade handles local vs. synced storage —
+ * this hook doesn't know or care where data lives.
+ *
+ * chunkIds must align 1:1 with the synthesis chunks (useTts.synthesisChunks),
+ * so that activeChunkIndex maps directly to a repository chunk ID.
+ *
+ * offsetSegundos stores the GLOBAL playback position (not chunk-local offset)
+ * so the library can display meaningful progress. For resume, we use seek()
+ * which finds the right chunk from the global position.
+ */
+export function useProgress(params: {
+  bookId: string | null;
+  chunkIds: string[];
+  activeChunkIndex: number;
+  position: number;
+  chunkStartTimes: (number | undefined)[];
+  isPlaying: boolean;
+}): void {
+  const { bookId, chunkIds, activeChunkIndex, position, chunkStartTimes, isPlaying } = params;
+
+  // Refs so the interval callback always sees the latest values without
+  // resetting the timer on every position change (which fires ~10×/sec).
+  const positionRef = useRef(position);
+  const activeChunkIndexRef = useRef(activeChunkIndex);
+  const chunkStartTimesRef = useRef(chunkStartTimes);
+  const isPlayingRef = useRef(isPlaying);
+  const wasPlayingRef = useRef(false);
+
+  positionRef.current = position;
+  activeChunkIndexRef.current = activeChunkIndex;
+  chunkStartTimesRef.current = chunkStartTimes;
+  isPlayingRef.current = isPlaying;
+
+  const saveNow = useRef<(() => void) | null>(null);
+
+  // Build the save function from current refs.
+  saveNow.current = () => {
+    if (!bookId || chunkIds.length === 0) return;
+
+    const idx = activeChunkIndexRef.current;
+    const chunkId = chunkIds[idx];
+    if (!chunkId) return;
+
+    // Don't save if position is 0 — it means playback hasn't started or was
+    // reset. Saving here would overwrite real progress with a fresh start.
+    if (positionRef.current <= 0) return;
+
+    // Compute the local offset within the chunk for word-level resume.
+    // globalPosition - chunkStart = how far into the current chunk we are.
+    const chunkStart = chunkStartTimesRef.current[idx] ?? 0;
+    const offsetLocal = Math.max(0, positionRef.current - chunkStart);
+
+    const progress: Progress = {
+      bookId,
+      chunkActualId: chunkId,
+      offsetSegundos: positionRef.current,
+      offsetLocal,
+      fechaUltimaEscucha: Date.now(),
+    };
+
+    void getBookRepository().saveProgress(progress);
+  };
+
+  // Periodic save during playback.
+  useEffect(() => {
+    if (!bookId) return;
+
+    const interval = setInterval(() => {
+      if (isPlayingRef.current) {
+        saveNow.current?.();
+      }
+    }, SAVE_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [bookId]);
+
+  // Save exactly once when playback transitions from playing → paused.
+  // Using wasPlayingRef to detect the transition, not position in the
+  // dependency array — position changes while paused would re-trigger
+  // the save and potentially overwrite with stale data.
+  useEffect(() => {
+    if (wasPlayingRef.current && !isPlaying && bookId) {
+      saveNow.current?.();
+    }
+    wasPlayingRef.current = isPlaying;
+  }, [isPlaying, bookId]);
+
+  // Save on unmount — but only if we were playing (didn't already save on pause).
+  useEffect(() => {
+    return () => {
+      if (isPlayingRef.current) {
+        saveNow.current?.();
+      }
+    };
+  }, [bookId]);
+}

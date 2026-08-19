@@ -159,6 +159,13 @@ export class PlaybackQueue {
       const gap = this.gaps.get(i) ?? this.gap;
       if (!buffer) break;
 
+      // Store the start time for every chunk we visit. This is critical for
+      // resume: chunks 0..N-1 are pushed but never pumped (wantPlay is false
+      // until the resume chunk arrives), so their chunkStartTimes are never
+      // set by pump(). Without this, the karaoke can't compute word timings
+      // for past chunks or the active chunk.
+      this.chunkStartTimes[i] = offset;
+
       if (time < offset + buffer.duration) {
         targetIndex = i;
         localOffset = Math.max(0, time - offset);
@@ -191,17 +198,35 @@ export class PlaybackQueue {
   async seekToChunk(index: number, localTime = 0): Promise<number> {
     if (index < 0 || index >= this.total) return -1;
 
-    // Calculate the global time of this chunk's start.
+    // Calculate the global time of this chunk's start, and set chunkStartTimes
+    // for all chunks we visit. This is critical for the karaoke: without real
+    // start times for past chunks, it falls back to proportional distribution
+    // which places them at wrong positions — causing the highlight to jump
+    // to a previous sentence after a few seconds of playback.
     let globalTime = 0;
     for (let i = 0; i < index; i++) {
       const buf = this.buffers.get(i);
       if (!buf) break;
+      this.chunkStartTimes[i] = globalTime;
       globalTime += buf.duration + (this.gaps.get(i) ?? this.gap);
     }
 
+    // Set the target chunk's start time too — the karaoke needs it to
+    // compute word timings within the active chunk.
+    this.chunkStartTimes[index] = globalTime;
+
+    const targetBuffer = this.buffers.get(index);
+
+    // Clamp localTime to the buffer duration — if it exceeds, the source
+    // would have nothing to play. This can happen if the saved offsetLocal
+    // was computed with a slightly different chunkStartTimes value.
+    const clampedLocalTime = targetBuffer
+      ? Math.min(Math.max(0, localTime), Math.max(0, targetBuffer.duration - 0.01))
+      : Math.max(0, localTime);
+
     this.clearScheduled();
     this.nextIndex = index;
-    this.pendingLocalOffset = Math.max(0, localTime);
+    this.pendingLocalOffset = clampedLocalTime;
     this.timelineEnd = globalTime;
     this.wantPlay = true;
 
@@ -380,7 +405,12 @@ export class PlaybackQueue {
       this.nextIndex++;
     }
 
-    this.pendingLocalOffset = 0;
+    // Only clear pendingLocalOffset if we actually scheduled at least one
+    // chunk. If pump() broke early (next buffer not yet available), we must
+    // keep the offset so it's applied when the buffer arrives via push().
+    if (!first) {
+      this.pendingLocalOffset = 0;
+    }
   }
 
   private clearScheduled(): void {

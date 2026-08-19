@@ -30,17 +30,26 @@ export interface TtsState {
   /** Audio synthesis chunks, aligned with chunkStartTimes for karaoke. */
   synthesisChunks: string[];
   chunkStartTimes: (number | undefined)[];
+  /** Currently playing synthesis chunk index (for progress saving). */
+  activeChunkIndex: number;
   error: string | null;
 }
 
 export interface UseTts extends TtsState {
   setVoice: (voiceId: string) => void;
   setSpeed: (speed: number) => void;
-  synthesize: (text: string, bookId?: string, chunkIds?: string[]) => Promise<void>;
+  /** If preChunked is provided, uses those strings directly instead of re-splitting text. */
+  synthesize: (
+    text: string,
+    bookId?: string,
+    chunkIds?: string[],
+    preChunked?: string[],
+    resumeFrom?: { chunkIndex: number; offsetLocal: number },
+  ) => Promise<void>;
   play: () => void;
   pause: () => void;
   seek: (time: number) => void;
-  seekToChunk: (index: number) => void;
+  seekToChunk: (index: number, localTime?: number) => void;
   cancel: () => void;
   reset: () => void;
   formatPosition: () => string;
@@ -69,6 +78,7 @@ const IDLE_STATE: TtsState = {
   duration: 0,
   synthesisChunks: [],
   chunkStartTimes: [],
+  activeChunkIndex: 0,
   error: null,
 };
 
@@ -121,7 +131,13 @@ export function useTts(): UseTts {
   }, []);
 
   const synthesize = useCallback(
-    async (text: string, bookId?: string, chunkIds?: string[]) => {
+    async (
+      text: string,
+      bookId?: string,
+      chunkIds?: string[],
+      preChunked?: string[],
+      resumeFrom?: { chunkIndex: number; offsetLocal: number },
+    ) => {
       const client = clientRef.current;
       if (!client) return;
 
@@ -129,7 +145,9 @@ export function useTts(): UseTts {
       queueRef.current?.stop();
       queueRef.current = null;
 
-      const chunks = chunkText(text);
+      // Use pre-chunked texts if provided (so synthesis chunks align 1:1 with
+      // repository chunks for progress tracking). Otherwise, split the text.
+      const chunks = preChunked ?? chunkText(text);
       if (chunks.length === 0) {
         update({ status: "error", error: "No hay texto para sintetizar." });
         return;
@@ -146,6 +164,7 @@ export function useTts(): UseTts {
         duration: 0,
         synthesisChunks: chunks,
         chunkStartTimes: new Array(chunks.length),
+        activeChunkIndex: 0,
       });
 
       // The queue is created lazily after the first chunk decodes, because
@@ -156,6 +175,13 @@ export function useTts(): UseTts {
       let queue: PlaybackQueue | null = null;
       let firstChunkPlayed = false;
       const decodePromises: Promise<void>[] = [];
+      // Indices whose decode+push has completed. Chunks decode asynchronously
+      // and can finish out of order, so "this chunk's index >= resumeFrom" is
+      // not enough to know every earlier chunk's buffer is actually in the
+      // queue yet — seekToChunk needs all of them to compute real chunk start
+      // times (see playbackQueue.ts's seekToChunk). Track completions
+      // explicitly and only resume once the whole 0..resumeFrom range is in.
+      const pushedIndices = new Set<number>();
 
       const ensureQueue = () => {
         if (queue) return queue;
@@ -172,6 +198,7 @@ export function useTts(): UseTts {
               currentPosition: snap.position,
               duration: snap.duration,
               chunkStartTimes: snap.chunkStartTimes,
+              activeChunkIndex: snap.index,
             }));
           },
         });
@@ -205,16 +232,39 @@ export function useTts(): UseTts {
               const p = decodeWav(wav).then((buffer) => {
                 const q = ensureQueue();
                 q.push(index, buffer);
+                pushedIndices.add(index);
                 setState((prev) => ({
                   ...prev,
                   chunksDone: prev.chunksDone + 1,
                 }));
 
-                // Auto-play on first chunk arrival (user gesture was the
-                // synthesize call, so AudioContext can resume).
+                // Start playback once the right buffers have arrived:
+                // - If resuming, wait until every chunk from 0 through the
+                //   resume chunk has been pushed (decode order isn't
+                //   guaranteed, so this can't just check the current index),
+                //   then seekToChunk. seekToChunk needs all of those buffers
+                //   to compute real chunk start times for the karaoke.
+                // - If not resuming, play on the first chunk (streaming).
                 if (!firstChunkPlayed) {
-                  firstChunkPlayed = true;
-                  void q.play();
+                  if (resumeFrom) {
+                    let allPriorPushed = true;
+                    for (let i = 0; i <= resumeFrom.chunkIndex; i++) {
+                      if (!pushedIndices.has(i)) {
+                        allPriorPushed = false;
+                        break;
+                      }
+                    }
+                    if (allPriorPushed) {
+                      firstChunkPlayed = true;
+                      // seekToChunk with offsetLocal gives word-level resume:
+                      // playback starts from the exact position within the chunk.
+                      void q.seekToChunk(resumeFrom.chunkIndex, resumeFrom.offsetLocal);
+                    }
+                    // Otherwise some earlier chunk hasn't arrived yet — wait.
+                  } else {
+                    firstChunkPlayed = true;
+                    void q.play();
+                  }
                 }
               });
               decodePromises.push(p);
@@ -268,8 +318,8 @@ export function useTts(): UseTts {
     queueRef.current?.seek(time);
   }, []);
 
-  const seekToChunk = useCallback((index: number) => {
-    queueRef.current?.seekToChunk(index);
+  const seekToChunk = useCallback((index: number, localTime?: number) => {
+    queueRef.current?.seekToChunk(index, localTime);
   }, []);
 
   const cancel = useCallback(() => {
@@ -285,6 +335,7 @@ export function useTts(): UseTts {
       duration: 0,
       synthesisChunks: [],
       chunkStartTimes: [],
+      activeChunkIndex: 0,
     });
   }, [update]);
 

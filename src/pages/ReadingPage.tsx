@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import type { MenuItem } from "../components/library/BookMenu.tsx";
 import { BookMenu } from "../components/library";
@@ -11,9 +11,10 @@ import {
   VoicesPanel,
 } from "../components/reading";
 import { useBook } from "../hooks/useBook.ts";
+import { useProgress } from "../hooks/useProgress.ts";
 import { useTts } from "../hooks/useTts.ts";
 import { getBookRepository } from "../lib/books";
-import { chunkText } from "../lib/chunker";
+import { formatDuration } from "../lib/audio";
 import BookmarkIcon from "../icons/BookmarkIcon.svg?react";
 import ChevronUpIcon from "../icons/ChevronUpIcon.svg?react";
 import MusicIcon from "../icons/MusicIcon.svg?react";
@@ -29,11 +30,15 @@ export function ReadingPage() {
   const [searchParams] = useSearchParams();
   const bookId = searchParams.get("book");
 
-  const { chunks, loading } = useBook(bookId);
+  const { chunks, progress, loading } = useBook(bookId);
   const tts = useTts();
   const [panel, setPanel] = useState<"voices" | "audio" | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [bookTitle, setBookTitle] = useState<string>("");
+  const progressRef = useRef(progress);
+
+  // Keep progressRef in sync so handleRead always sees the latest saved progress.
+  progressRef.current = progress;
 
   // Load book metadata for the header
   useEffect(() => {
@@ -45,27 +50,55 @@ export function ReadingPage() {
       });
   }, [bookId]);
 
-  // Full text of the document, used for both TTS and word-level karaoke.
-  const allText = useMemo(() => chunks.map((c) => c.texto).join("\n"), [chunks]);
-
-  // Pre-compute synthesis chunks so the karaoke text has the same format
-  // before and after the user clicks play. Without this, the text shows as
-  // one big block (with paragraph breaks) before play, then re-formats into
-  // sentence-level chunks (with spaces) after play — a visible format change.
-  // chunkText is deterministic, so this matches what useTts.synthesize computes.
-  const karaokeChunks = useMemo(
-    () => (tts.synthesisChunks.length > 0 ? tts.synthesisChunks : chunkText(allText)),
-    [tts.synthesisChunks, allText],
+  // Repository chunk texts — used directly as synthesis chunks so they align
+  // 1:1 with chunk IDs. This makes progress saving/resume trivial: the queue's
+  // activeChunkIndex maps directly to a repository chunk ID.
+  const chunkTexts = useMemo(() => chunks.map((c) => c.texto), [chunks]);
+  const chunkIds = useMemo(() => chunks.map((c) => c.id), [chunks]);
+  const totalChars = useMemo(
+    () => chunkTexts.reduce((sum, text) => sum + text.length, 0),
+    [chunkTexts],
   );
 
+  // Full text (for synthesize) and karaoke chunks. Before play, use the
+  // repository chunk texts directly — NOT chunkText(allText), which re-splits
+  // the joined text and produces different chunk boundaries. After play,
+  // tts.synthesisChunks is the same data (passed via preChunked).
+  const allText = useMemo(() => chunkTexts.join("\n"), [chunkTexts]);
+  const karaokeChunks = useMemo(
+    () => (tts.synthesisChunks.length > 0 ? tts.synthesisChunks : chunkTexts),
+    [tts.synthesisChunks, chunkTexts],
+  );
+
+  // Debounced progress saving during playback.
+  useProgress({
+    bookId,
+    chunkIds,
+    activeChunkIndex: tts.activeChunkIndex,
+    position: tts.currentPosition,
+    chunkStartTimes: tts.chunkStartTimes,
+    isPlaying: tts.isPlaying,
+  });
+
   // When chunks load and TTS is idle, synthesize them.
-  // Pass bookId + chunkIds so the worker can check the OPFS cache and skip
-  // synthesis for already-generated audio.
+  // Pass chunkTexts directly as preChunked so synthesis chunks = repository
+  // chunks (1:1 mapping for progress). Pass bookId + chunkIds so the worker
+  // can check the OPFS cache and skip synthesis for already-generated audio.
   const handleRead = () => {
     if (chunks.length === 0) return;
-    const chunkIds = chunks.map((c) => c.id);
     tts.reset();
-    void tts.synthesize(allText, bookId ?? undefined, chunkIds);
+
+    // Find the resume chunk from saved progress.
+    const saved = progressRef.current;
+    let resumeFrom: { chunkIndex: number; offsetLocal: number } | undefined;
+    if (saved && saved.chunkActualId) {
+      const idx = chunkIds.indexOf(saved.chunkActualId);
+      if (idx > 0 || (idx === 0 && (saved.offsetLocal ?? 0) > 0)) {
+        resumeFrom = { chunkIndex: idx, offsetLocal: saved.offsetLocal ?? 0 };
+      }
+    }
+
+    void tts.synthesize(allText, bookId ?? undefined, chunkIds, chunkTexts, resumeFrom);
   };
 
   const menuItems: MenuItem[] = [
@@ -108,6 +141,55 @@ export function ReadingPage() {
   const format = chunks[0]?.capituloId != null ? "TXT" : "TXT";
   const estimate = `Est. ${Math.ceil(chunks.length * 0.5)} min`;
   const voiceName = tts.voices.find((v) => v.id === tts.voiceId)?.label ?? "Voz";
+
+  // Show saved progress until the resume seek has actually fired and real
+  // playback has started. tts.duration grows as chunks are pushed (even before
+  // the resume seek), and tts.currentPosition stays at 0 until the seek fires.
+  // So we check currentPosition > 0 as the signal that real playback has started.
+  // Without this, the karaoke would try word-level highlighting with partial
+  // duration and no real chunkStartTimes — placing the highlight at the wrong word.
+  const isIdle = tts.status === "idle" || tts.status === "error" || tts.status === "done";
+  const savedPosition = progress?.offsetSegundos ?? 0;
+  const showSaved = tts.currentPosition === 0 && savedPosition > 0;
+  const displayPosition = showSaved ? savedPosition : tts.currentPosition;
+  // Use indexOf (same as handleRead) instead of parsing the chunk ID string.
+  // The string parser assumed IDs like "c0001" → 1, but that's fragile and
+  // can be wrong if the ID format ever changes.
+  const savedChunkIndex = progress ? Math.max(0, chunkIds.indexOf(progress.chunkActualId)) : 0;
+
+  // When idle with no audio loaded, tts.duration is 0. We can't do word-level
+  // highlighting without real timing data, so we pass initialChunkIndex to
+  // highlight the saved chunk (sentence) and scroll to it. Word-level
+  // highlighting kicks in once audio is playing.
+  // Note: tts.duration grows as chunks are pushed (even before playback starts),
+  // so we can't use it to detect "audio is playing". Instead, we check
+  // currentPosition > 0 — the position only advances when audio is actually
+  // playing. While showSaved is true, pass duration=0 to KaraokeText so it
+  // stays in chunk-level highlighting mode.
+  const karaokeDuration = showSaved ? 0 : tts.duration;
+
+  // Total duration and progress percentage for the playback bar. tts.duration
+  // only counts audio chunks synthesized so far, so for a long document still
+  // streaming in the background it's much smaller than the real total —
+  // using it as the denominator makes the bar track "how much has been
+  // synthesized" (which fills up fast at first, then stalls) instead of "how
+  // far through the document". Extrapolate a total from the characters/second
+  // rate observed in the chunks synthesized so far, and switch to the real
+  // duration once every chunk has arrived.
+  const isFullySynthesized = chunks.length > 0 && tts.chunksDone >= chunks.length;
+  const charsSynthesized = chunkTexts
+    .slice(0, tts.chunksDone)
+    .reduce((sum, text) => sum + text.length, 0);
+  const secondsPerChar = charsSynthesized > 0 ? tts.duration / charsSynthesized : 0;
+  const estimatedTotalDuration = isFullySynthesized ? tts.duration : secondsPerChar * totalChars;
+
+  const displayDuration = estimatedTotalDuration > 0 ? estimatedTotalDuration : tts.duration;
+  const displayProgressPercent =
+    estimatedTotalDuration > 0
+      ? Math.min(100, (displayPosition / estimatedTotalDuration) * 100)
+      : showSaved && chunks.length > 0
+        ? (savedChunkIndex / chunks.length) * 100
+        : 0;
 
   return (
     <main className="flex min-h-screen min-w-0 flex-1 flex-col bg-bg-tertiary">
@@ -161,9 +243,11 @@ export function ReadingPage() {
                 <KaraokeText
                   chunkStartTimes={tts.chunkStartTimes}
                   chunks={karaokeChunks}
-                  duration={tts.duration}
+                  duration={karaokeDuration}
+                  initialChunkIndex={showSaved ? savedChunkIndex : -1}
+                  initialOffsetLocal={showSaved ? (progress?.offsetLocal ?? 0) : 0}
                   onSeek={tts.seek}
-                  position={tts.currentPosition}
+                  position={displayPosition}
                 />
               </div>
             </div>
@@ -201,12 +285,12 @@ export function ReadingPage() {
       )}
 
       <PlaybackControls
-        duration={tts.formatTotal()}
+        duration={formatDuration(displayDuration)}
         isPlaying={tts.status === "playing"}
         onOpenVoices={() => setPanel("voices")}
         onSpeedChange={tts.setSpeed}
         onToggle={() => {
-          if (tts.status === "idle" || tts.status === "error" || tts.status === "done") {
+          if (isIdle) {
             handleRead();
           } else if (tts.status === "playing" || tts.status === "buffering") {
             tts.pause();
@@ -214,8 +298,8 @@ export function ReadingPage() {
             tts.play();
           }
         }}
-        position={tts.formatPosition()}
-        progressPercent={tts.duration > 0 ? (tts.currentPosition / tts.duration) * 100 : 0}
+        position={formatDuration(displayPosition)}
+        progressPercent={displayProgressPercent}
         speed={tts.speed}
         voiceName={voiceName}
       />

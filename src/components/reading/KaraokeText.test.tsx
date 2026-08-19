@@ -3,11 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import { KaraokeText } from "./KaraokeText.tsx";
 
 const CHUNKS = ["Hola mundo adios"];
+// Single chunk starts at 0, duration is 10s
+const CHUNK_START_TIMES = [0];
 
 const renderKaraoke = (position: number, duration: number) =>
   render(
     <KaraokeText
-      chunkStartTimes={[]}
+      chunkStartTimes={CHUNK_START_TIMES}
       chunks={CHUNKS}
       duration={duration}
       onSeek={vi.fn()}
@@ -54,7 +56,7 @@ describe("KaraokeText", () => {
   it("preserves paragraph breaks and spaces", () => {
     render(
       <KaraokeText
-        chunkStartTimes={[]}
+        chunkStartTimes={[0, 5]}
         chunks={["Hola.", "Mundo."]}
         duration={10}
         onSeek={vi.fn()}
@@ -70,7 +72,7 @@ describe("KaraokeText", () => {
     const onSeek = vi.fn();
     render(
       <KaraokeText
-        chunkStartTimes={[]}
+        chunkStartTimes={CHUNK_START_TIMES}
         chunks={CHUNKS}
         duration={10}
         onSeek={onSeek}

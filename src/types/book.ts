@@ -36,7 +36,10 @@ export interface Chunk {
 export interface Progress {
   bookId: string;
   chunkActualId: string;
+  /** Global playback position in seconds — used for library display. */
   offsetSegundos: number;
+  /** Offset within the chunk in seconds — used for word-level resume. */
+  offsetLocal?: number;
   fechaUltimaEscucha: EpochTimestamp;
 }
 
