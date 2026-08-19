@@ -14,7 +14,6 @@ import { useBook } from "../hooks/useBook.ts";
 import { useProgress } from "../hooks/useProgress.ts";
 import { useTts } from "../hooks/useTts.ts";
 import { getBookRepository } from "../lib/books";
-import { chunkText } from "../lib/chunker";
 import { formatDuration } from "../lib/audio";
 import BookmarkIcon from "../icons/BookmarkIcon.svg?react";
 import ChevronUpIcon from "../icons/ChevronUpIcon.svg?react";
@@ -57,14 +56,14 @@ export function ReadingPage() {
   const chunkTexts = useMemo(() => chunks.map((c) => c.texto), [chunks]);
   const chunkIds = useMemo(() => chunks.map((c) => c.id), [chunks]);
 
-  // Pre-compute karaoke chunks so the text has the same format before and
-  // after the user clicks play. Before play, use chunkText(allText) which
-  // matches the repository chunks (they were created with chunkText during
-  // upload). After play, tts.synthesisChunks is the same data.
+  // Full text (for synthesize) and karaoke chunks. Before play, use the
+  // repository chunk texts directly — NOT chunkText(allText), which re-splits
+  // the joined text and produces different chunk boundaries. After play,
+  // tts.synthesisChunks is the same data (passed via preChunked).
   const allText = useMemo(() => chunkTexts.join("\n"), [chunkTexts]);
   const karaokeChunks = useMemo(
-    () => (tts.synthesisChunks.length > 0 ? tts.synthesisChunks : chunkText(allText)),
-    [tts.synthesisChunks, allText],
+    () => (tts.synthesisChunks.length > 0 ? tts.synthesisChunks : chunkTexts),
+    [tts.synthesisChunks, chunkTexts],
   );
 
   // Debounced progress saving during playback.
