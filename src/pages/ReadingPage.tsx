@@ -203,12 +203,15 @@ export function ReadingPage() {
         <div className="absolute inset-0 flex flex-col p-4 pt-16 md:p-8 md:pt-8">
           <ReadingHeader title={bookTitle || "Documento"} format={format} estimate={estimate} />
           <div className="grid flex-1 place-items-center py-4">
-            <VoiceSphere />
+            <VoiceSphere
+              isPlaying={tts.isPlaying}
+              loading={tts.status === "downloading-voice" || tts.status === "synthesizing"}
+            />
           </div>
         </div>
 
         <div
-          className="absolute inset-0 flex flex-col transition-transform duration-300 ease-out"
+          className="absolute z-10 inset-0 flex flex-col transition-transform duration-300 ease-out"
           style={{
             transform: expanded ? undefined : `translateY(calc(100% - ${HANDLE_HEIGHT}))`,
           }}
