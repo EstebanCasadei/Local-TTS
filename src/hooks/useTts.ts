@@ -94,12 +94,14 @@ export function useTts(): UseTts {
     speed: loadSavedSpeed(),
   }));
 
-  // Create the TTS client once; dispose on unmount.
+  // Create the TTS client once. Its worker is shared across mounts (see
+  // TtsClient), so switching documents doesn't force the voice model to
+  // reload — only cancel any in-flight synthesis on unmount.
   useEffect(() => {
     const client = new TtsClient();
     clientRef.current = client;
     return () => {
-      client.dispose();
+      client.cancel();
       queueRef.current?.stop();
     };
   }, []);

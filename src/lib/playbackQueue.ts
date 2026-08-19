@@ -311,6 +311,14 @@ export class PlaybackQueue {
       // starts playing and position jumps back to the correct value.
       return entry.offset + localStart;
     }
+    // Nothing scheduled — this happens right after a seek while paused, since
+    // pump() (which schedules entries) only runs when wantPlay is true. Report
+    // the position we seeked to instead of falling through to 0, otherwise the
+    // karaoke highlight flashes to the first word until playback resumes.
+    if (this.scheduled.length === 0 && this.nextIndex < this.total) {
+      return this.timelineEnd + this.pendingLocalOffset;
+    }
+
     // Nothing currently playing — return the end of the last finished entry.
     const lastDone = [...this.scheduled].reverse().find((e) => t >= e.endTime);
     return lastDone ? lastDone.offset + (lastDone.localStart ?? 0) + lastDone.playDuration : 0;
