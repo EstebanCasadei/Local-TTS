@@ -185,8 +185,8 @@ export function ReadingPage() {
 
   // When idle with no audio loaded, tts.duration is 0. We can't do word-level
   // highlighting without real timing data, so we pass initialChunkIndex to
-  // highlight the saved chunk (sentence) and scroll to it. Word-level
-  // highlighting kicks in once audio is playing.
+  // highlight the saved chunk (sentence). Word-level highlighting kicks in
+  // once audio is playing.
   // Note: tts.duration grows as chunks are pushed (even before playback starts),
   // so we can't use it to detect "audio is playing". Instead, we check
   // currentPosition > 0 — the position only advances when audio is actually
@@ -285,7 +285,6 @@ export function ReadingPage() {
                   onSeek={(localChunkIndex, localOffset) =>
                     tts.seekToChunk(rangeStart + localChunkIndex, localOffset)
                   }
-                  panelExpanded={expanded}
                   position={displayPosition}
                 />
               </div>

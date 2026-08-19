@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 
 type WordToken = {
   text: string;
@@ -38,8 +38,6 @@ type KaraokeTextProps = {
    * size chunks whose next real start isn't known yet. Falls back to a
    * hardcoded rate if no audio has finished. */
   secondsPerChar?: number;
-  /** Whether the text panel is visible. When hidden, auto-scroll is disabled. */
-  panelExpanded?: boolean;
 };
 
 const WORD_CLASS = "cursor-default rounded-[2px] transition-colors duration-100";
@@ -48,7 +46,6 @@ const ACTIVE_CHUNK_CLASS = "bg-action-primary/10 text-text-primary";
 const PAST_CLASS = "text-text-secondary";
 const FUTURE_CLASS = "text-text-primary";
 
-const SCROLL_PAUSE_MS = 3000;
 /** Rough Piper Spanish synthesis rate, used to estimate a chunk's spoken
  * duration when its real one isn't known yet (see buildTokens). */
 const ESTIMATED_CHARS_PER_SEC = 15;
@@ -166,8 +163,8 @@ function findActiveWordIndex(tokens: WordToken[], position: number, duration: nu
 }
 
 /**
- * Karaoke text: renders the audio chunks as clickable word spans, highlights
- * the active chunk and active word, and auto-scrolls to the active word.
+ * Karaoke text: renders the audio chunks as clickable word spans and
+ * highlights the active chunk and active word.
  * Clicking a word seeks playback to that word's estimated start time.
  */
 export function KaraokeText({
@@ -179,25 +176,7 @@ export function KaraokeText({
   initialChunkIndex = -1,
   initialOffsetLocal = 0,
   secondsPerChar,
-  panelExpanded = true,
 }: KaraokeTextProps) {
-  const activeRef = useRef<HTMLSpanElement | null>(null);
-  const chunkRef = useRef<HTMLSpanElement | null>(null);
-  const [scrollPaused, setScrollPaused] = useState(false);
-  const [panelStable, setPanelStable] = useState(panelExpanded);
-  const autoScrollRef = useRef(false);
-  const pauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Wait for the text panel slide-in transition to finish before auto-scrolling.
-  useEffect(() => {
-    if (!panelExpanded) {
-      setPanelStable(false);
-      return;
-    }
-    const t = setTimeout(() => setPanelStable(true), 320);
-    return () => clearTimeout(t);
-  }, [panelExpanded]);
-
   const tokens = useMemo(
     () => buildTokens(chunks, chunkStartTimes, secondsPerChar),
     [chunks, chunkStartTimes, secondsPerChar],
@@ -253,49 +232,8 @@ export function KaraokeText({
     return chunks.length > 0 ? chunks.length - 1 : -1;
   }, [activeIndex, chunks.length, duration, initialChunkIndex, position, tokens]);
 
-  // Auto-scroll: to the active word when playing, or to the saved chunk when idle.
-  // Disabled while the text panel is closed or still animating, so the scroll
-  // doesn't fight the panel's slide-in transition.
-  useEffect(() => {
-    if (!panelStable) return;
-    if (scrollPaused) return;
-
-    const targetRef = activeRef.current ?? chunkRef.current;
-    if (!targetRef) return;
-
-    autoScrollRef.current = true;
-    if (typeof targetRef.scrollIntoView === "function") {
-      targetRef.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-        inline: "nearest",
-      });
-    }
-
-    const t = setTimeout(() => {
-      autoScrollRef.current = false;
-    }, 500);
-    return () => clearTimeout(t);
-  }, [activeIndex, activeChunkIndex, panelStable, scrollPaused, tokens]);
-
-  const handleScroll = useCallback(() => {
-    if (autoScrollRef.current) return;
-
-    setScrollPaused(true);
-    if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
-    pauseTimeoutRef.current = setTimeout(() => {
-      setScrollPaused(false);
-    }, SCROLL_PAUSE_MS);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
-    };
-  }, []);
-
   return (
-    <div className="h-full min-h-0 flex-1 overflow-y-auto" onScroll={handleScroll}>
+    <div className="h-full min-h-0 flex-1 overflow-y-auto">
       <p className="font-p whitespace-pre-line leading-relaxed">
         {tokens.map((token, index) => {
           if (token.isSpace) {
@@ -308,12 +246,6 @@ export function KaraokeText({
             ((duration > 0 && token.end <= position) ||
               (duration <= 0 && token.chunkIndex < activeChunkIndex));
           const isActiveChunk = token.chunkIndex === activeChunkIndex && !isPast;
-          // Attach chunkRef to the first word of the active chunk so we can
-          // scroll to it before audio loads (when there's no active word).
-          const isFirstWordOfChunk =
-            isActiveChunk &&
-            !isActive &&
-            !tokens.slice(0, index).some((t) => t.chunkIndex === token.chunkIndex && !t.isSpace);
 
           let className = WORD_CLASS;
           if (isActive) {
@@ -327,16 +259,9 @@ export function KaraokeText({
           }
 
           const handleClick = (
-            event: React.MouseEvent<HTMLSpanElement> | React.KeyboardEvent<HTMLSpanElement>,
+            _event: React.MouseEvent<HTMLSpanElement> | React.KeyboardEvent<HTMLSpanElement>,
           ) => {
             onSeek?.(token.chunkIndex, token.localOffset);
-            if (typeof event.currentTarget.scrollIntoView === "function") {
-              event.currentTarget.scrollIntoView({
-                behavior: "smooth",
-                block: "center",
-                inline: "nearest",
-              });
-            }
           };
 
           return (
@@ -350,7 +275,6 @@ export function KaraokeText({
                   handleClick(event);
                 }
               }}
-              ref={isActive ? activeRef : isFirstWordOfChunk ? chunkRef : undefined}
               role="button"
               tabIndex={0}
               title="Reproducir desde esta palabra"
