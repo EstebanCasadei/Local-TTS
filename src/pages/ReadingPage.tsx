@@ -55,6 +55,10 @@ export function ReadingPage() {
   // activeChunkIndex maps directly to a repository chunk ID.
   const chunkTexts = useMemo(() => chunks.map((c) => c.texto), [chunks]);
   const chunkIds = useMemo(() => chunks.map((c) => c.id), [chunks]);
+  const totalChars = useMemo(
+    () => chunkTexts.reduce((sum, text) => sum + text.length, 0),
+    [chunkTexts],
+  );
 
   // Full text (for synthesize) and karaoke chunks. Before play, use the
   // repository chunk texts directly — NOT chunkText(allText), which re-splits
@@ -164,9 +168,25 @@ export function ReadingPage() {
   // stays in chunk-level highlighting mode.
   const karaokeDuration = showSaved ? 0 : tts.duration;
 
+  // Total duration and progress percentage for the playback bar. tts.duration
+  // only counts audio chunks synthesized so far, so for a long document still
+  // streaming in the background it's much smaller than the real total —
+  // using it as the denominator makes the bar track "how much has been
+  // synthesized" (which fills up fast at first, then stalls) instead of "how
+  // far through the document". Extrapolate a total from the characters/second
+  // rate observed in the chunks synthesized so far, and switch to the real
+  // duration once every chunk has arrived.
+  const isFullySynthesized = chunks.length > 0 && tts.chunksDone >= chunks.length;
+  const charsSynthesized = chunkTexts
+    .slice(0, tts.chunksDone)
+    .reduce((sum, text) => sum + text.length, 0);
+  const secondsPerChar = charsSynthesized > 0 ? tts.duration / charsSynthesized : 0;
+  const estimatedTotalDuration = isFullySynthesized ? tts.duration : secondsPerChar * totalChars;
+
+  const displayDuration = estimatedTotalDuration > 0 ? estimatedTotalDuration : tts.duration;
   const displayProgressPercent =
-    tts.duration > 0
-      ? (tts.currentPosition / tts.duration) * 100
+    estimatedTotalDuration > 0
+      ? Math.min(100, (displayPosition / estimatedTotalDuration) * 100)
       : showSaved && chunks.length > 0
         ? (savedChunkIndex / chunks.length) * 100
         : 0;
@@ -265,7 +285,7 @@ export function ReadingPage() {
       )}
 
       <PlaybackControls
-        duration={tts.formatTotal()}
+        duration={formatDuration(displayDuration)}
         isPlaying={tts.status === "playing"}
         onOpenVoices={() => setPanel("voices")}
         onSpeedChange={tts.setSpeed}
