@@ -138,12 +138,15 @@ export function ReadingPage() {
   const estimate = `Est. ${Math.ceil(chunks.length * 0.5)} min`;
   const voiceName = tts.voices.find((v) => v.id === tts.voiceId)?.label ?? "Voz";
 
-  // When idle with saved progress, show the saved position so the user sees
-  // their progress before clicking play. Once playback starts, the live tts
-  // state takes over.
+  // Show saved progress whenever there's no real audio loaded yet (duration
+  // is 0 and position is 0). This covers both idle AND the download/synthesis
+  // phase after clicking play — without it, the position flashes to 0:00
+  // during voice download before the resume seek kicks in.
   const isIdle = tts.status === "idle" || tts.status === "error" || tts.status === "done";
   const savedPosition = progress?.offsetSegundos ?? 0;
-  const displayPosition = isIdle && savedPosition > 0 ? savedPosition : tts.currentPosition;
+  const noAudioYet = tts.duration === 0 && tts.currentPosition === 0;
+  const showSaved = noAudioYet && savedPosition > 0;
+  const displayPosition = showSaved ? savedPosition : tts.currentPosition;
   const savedChunkIndex = progress
     ? Math.max(0, parseInt(progress.chunkActualId.replace(/^c/, ""), 10) || 0)
     : 0;
@@ -157,7 +160,7 @@ export function ReadingPage() {
   const displayProgressPercent =
     tts.duration > 0
       ? (tts.currentPosition / tts.duration) * 100
-      : isIdle && savedPosition > 0 && chunks.length > 0
+      : showSaved && chunks.length > 0
         ? (savedChunkIndex / chunks.length) * 100
         : 0;
 
@@ -214,7 +217,7 @@ export function ReadingPage() {
                   chunkStartTimes={tts.chunkStartTimes}
                   chunks={karaokeChunks}
                   duration={displayDuration}
-                  initialChunkIndex={isIdle && savedPosition > 0 ? savedChunkIndex : -1}
+                  initialChunkIndex={showSaved ? savedChunkIndex : -1}
                   onSeek={tts.seek}
                   position={displayPosition}
                 />
