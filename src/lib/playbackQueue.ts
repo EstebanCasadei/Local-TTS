@@ -159,6 +159,13 @@ export class PlaybackQueue {
       const gap = this.gaps.get(i) ?? this.gap;
       if (!buffer) break;
 
+      // Store the start time for every chunk we visit. This is critical for
+      // resume: chunks 0..N-1 are pushed but never pumped (wantPlay is false
+      // until the resume chunk arrives), so their chunkStartTimes are never
+      // set by pump(). Without this, the karaoke can't compute word timings
+      // for past chunks or the active chunk.
+      this.chunkStartTimes[i] = offset;
+
       if (time < offset + buffer.duration) {
         targetIndex = i;
         localOffset = Math.max(0, time - offset);
