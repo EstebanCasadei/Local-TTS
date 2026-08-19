@@ -148,15 +148,11 @@ export function ReadingPage() {
     ? Math.max(0, parseInt(progress.chunkActualId.replace(/^c/, ""), 10) || 0)
     : 0;
 
-  // When idle with no audio loaded, tts.duration is 0. The karaoke can't
-  // compute word timings without a duration, so provide an estimate. We know
-  // which chunk the saved position is in (savedChunkIndex), so we estimate
-  // per-chunk duration so the saved position falls in the MIDDLE of that
-  // chunk — this highlights roughly the right word before real audio loads.
-  const estimatedPerChunk =
-    savedPosition > 0 && savedChunkIndex >= 0 ? savedPosition / (savedChunkIndex + 0.5) : 15;
-  const estimatedDuration = chunks.length * estimatedPerChunk;
-  const displayDuration = isIdle && tts.duration === 0 ? estimatedDuration : tts.duration;
+  // When idle with no audio loaded, tts.duration is 0. We can't do word-level
+  // highlighting without real timing data, so we pass initialChunkIndex to
+  // highlight the saved chunk (sentence) and scroll to it. Word-level
+  // highlighting kicks in once audio is playing.
+  const displayDuration = tts.duration;
 
   const displayProgressPercent =
     tts.duration > 0
@@ -218,6 +214,7 @@ export function ReadingPage() {
                   chunkStartTimes={tts.chunkStartTimes}
                   chunks={karaokeChunks}
                   duration={displayDuration}
+                  initialChunkIndex={isIdle && savedPosition > 0 ? savedChunkIndex : -1}
                   onSeek={tts.seek}
                   position={displayPosition}
                 />

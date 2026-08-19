@@ -14,6 +14,8 @@ type KaraokeTextProps = {
   position: number;
   duration: number;
   onSeek?: (time: number) => void;
+  /** Chunk to highlight before audio loads (from saved progress). -1 = none. */
+  initialChunkIndex?: number;
 };
 
 const WORD_CLASS = "cursor-default rounded-[2px] transition-colors duration-100";
@@ -157,8 +159,10 @@ export function KaraokeText({
   position,
   duration,
   onSeek,
+  initialChunkIndex = -1,
 }: KaraokeTextProps) {
   const activeRef = useRef<HTMLSpanElement | null>(null);
+  const chunkRef = useRef<HTMLSpanElement | null>(null);
   const [scrollPaused, setScrollPaused] = useState(false);
   const autoScrollRef = useRef(false);
   const pauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -173,8 +177,10 @@ export function KaraokeText({
     [tokens, position, duration],
   );
 
+  // Before audio loads (duration <= 0), use initialChunkIndex from saved
+  // progress. Once audio is playing (duration > 0), use real word timing.
   const activeChunkIndex = useMemo(() => {
-    if (duration <= 0) return -1;
+    if (duration <= 0) return initialChunkIndex;
     if (activeIndex >= 0) return tokens[activeIndex]?.chunkIndex ?? -1;
 
     for (const token of tokens) {
@@ -184,15 +190,18 @@ export function KaraokeText({
     }
 
     return chunks.length > 0 ? chunks.length - 1 : -1;
-  }, [activeIndex, chunks.length, duration, position, tokens]);
+  }, [activeIndex, chunks.length, duration, initialChunkIndex, position, tokens]);
 
-  // Auto-scroll to the active word, unless the user has manually scrolled.
+  // Auto-scroll: to the active word when playing, or to the saved chunk when idle.
   useEffect(() => {
-    if (scrollPaused || activeIndex < 0 || !activeRef.current) return;
+    if (scrollPaused) return;
+
+    const targetRef = activeRef.current ?? chunkRef.current;
+    if (!targetRef) return;
 
     autoScrollRef.current = true;
-    if (typeof activeRef.current.scrollIntoView === "function") {
-      activeRef.current.scrollIntoView({
+    if (typeof targetRef.scrollIntoView === "function") {
+      targetRef.scrollIntoView({
         behavior: "smooth",
         block: "center",
         inline: "nearest",
@@ -203,7 +212,7 @@ export function KaraokeText({
       autoScrollRef.current = false;
     }, 500);
     return () => clearTimeout(t);
-  }, [activeIndex, scrollPaused, tokens]);
+  }, [activeIndex, activeChunkIndex, scrollPaused, tokens]);
 
   const handleScroll = useCallback(() => {
     if (autoScrollRef.current) return;
@@ -230,8 +239,17 @@ export function KaraokeText({
           }
 
           const isActive = index === activeIndex;
-          const isPast = !token.isSpace && duration > 0 && token.end <= position;
+          const isPast =
+            !token.isSpace &&
+            ((duration > 0 && token.end <= position) ||
+              (duration <= 0 && token.chunkIndex < activeChunkIndex));
           const isActiveChunk = token.chunkIndex === activeChunkIndex && !isPast;
+          // Attach chunkRef to the first word of the active chunk so we can
+          // scroll to it before audio loads (when there's no active word).
+          const isFirstWordOfChunk =
+            isActiveChunk &&
+            !isActive &&
+            !tokens.slice(0, index).some((t) => t.chunkIndex === token.chunkIndex && !t.isSpace);
 
           let className = WORD_CLASS;
           if (isActive) {
@@ -259,7 +277,7 @@ export function KaraokeText({
                   handleClick();
                 }
               }}
-              ref={isActive ? activeRef : undefined}
+              ref={isActive ? activeRef : isFirstWordOfChunk ? chunkRef : undefined}
               role="button"
               tabIndex={0}
               title="Reproducir desde esta palabra"
