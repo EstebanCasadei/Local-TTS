@@ -146,15 +146,21 @@ export function ReadingPage() {
   const noAudioYet = tts.duration === 0 && tts.currentPosition === 0;
   const showSaved = noAudioYet && savedPosition > 0;
   const displayPosition = showSaved ? savedPosition : tts.currentPosition;
-  const savedChunkIndex = progress
-    ? Math.max(0, parseInt(progress.chunkActualId.replace(/^c/, ""), 10) || 0)
-    : 0;
+  // Use indexOf (same as handleRead) instead of parsing the chunk ID string.
+  // The string parser assumed IDs like "c0001" → 1, but that's fragile and
+  // can be wrong if the ID format ever changes.
+  const savedChunkIndex = progress ? Math.max(0, chunkIds.indexOf(progress.chunkActualId)) : 0;
 
   // When idle with no audio loaded, tts.duration is 0. We can't do word-level
   // highlighting without real timing data, so we pass initialChunkIndex to
   // highlight the saved chunk (sentence) and scroll to it. Word-level
   // highlighting kicks in once audio is playing.
-  const displayDuration = tts.duration;
+  // Note: tts.duration grows as chunks are pushed (even before playback starts),
+  // so we can't use it to detect "audio is playing". Instead, we check
+  // currentPosition > 0 — the position only advances when audio is actually
+  // playing. While showSaved is true, pass duration=0 to KaraokeText so it
+  // stays in chunk-level highlighting mode.
+  const karaokeDuration = showSaved ? 0 : tts.duration;
 
   const displayProgressPercent =
     tts.duration > 0
@@ -215,7 +221,7 @@ export function ReadingPage() {
                 <KaraokeText
                   chunkStartTimes={tts.chunkStartTimes}
                   chunks={karaokeChunks}
-                  duration={displayDuration}
+                  duration={karaokeDuration}
                   initialChunkIndex={showSaved ? savedChunkIndex : -1}
                   onSeek={tts.seek}
                   position={displayPosition}
