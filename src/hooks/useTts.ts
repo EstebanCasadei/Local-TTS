@@ -44,7 +44,7 @@ export interface UseTts extends TtsState {
     bookId?: string,
     chunkIds?: string[],
     preChunked?: string[],
-    resumeFrom?: { chunkIndex: number; globalPosition: number },
+    resumeFrom?: { chunkIndex: number },
   ) => Promise<void>;
   play: () => void;
   pause: () => void;
@@ -134,7 +134,7 @@ export function useTts(): UseTts {
       bookId?: string,
       chunkIds?: string[],
       preChunked?: string[],
-      resumeFrom?: { chunkIndex: number; globalPosition: number },
+      resumeFrom?: { chunkIndex: number },
     ) => {
       const client = clientRef.current;
       if (!client) return;
@@ -229,17 +229,20 @@ export function useTts(): UseTts {
                 }));
 
                 // Start playback when the right chunk arrives:
-                // - If resuming, wait for the resume chunk, then seek to the
-                //   saved global position. The worker synthesizes sequentially,
-                //   so by the time chunk N arrives, chunks 0..N-1 are already
-                //   in the queue's buffers, and seek() can find the right chunk
-                //   and local offset from the global position.
+                // - If resuming, wait for the resume chunk, then seekToChunk.
+                //   seekToChunk only needs the chunk index — it computes the
+                //   timeline internally from buffer durations. This is robust
+                //   even when not all chunks have arrived yet (unlike seek()
+                //   which needs the total duration to be >= the global position).
                 // - If not resuming, play on the first chunk (streaming).
                 if (!firstChunkPlayed) {
                   if (resumeFrom && index >= resumeFrom.chunkIndex) {
                     firstChunkPlayed = true;
-                    void q.seek(resumeFrom.globalPosition);
-                    void q.play();
+                    // seekToChunk sets wantPlay=true and starts playing from
+                    // the beginning of the saved chunk. We lose word-level
+                    // precision within the chunk, but we land on the correct
+                    // sentence — much better than starting from 0.
+                    void q.seekToChunk(resumeFrom.chunkIndex);
                   } else if (!resumeFrom) {
                     firstChunkPlayed = true;
                     void q.play();

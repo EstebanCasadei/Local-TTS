@@ -83,13 +83,13 @@ export function ReadingPage() {
     if (chunks.length === 0) return;
     tts.reset();
 
-    // Find the resume position from saved progress.
+    // Find the resume chunk from saved progress.
     const saved = progressRef.current;
-    let resumeFrom: { chunkIndex: number; globalPosition: number } | undefined;
+    let resumeFrom: { chunkIndex: number } | undefined;
     if (saved && saved.chunkActualId) {
       const idx = chunkIds.indexOf(saved.chunkActualId);
-      if (idx >= 0 && saved.offsetSegundos > 0) {
-        resumeFrom = { chunkIndex: idx, globalPosition: saved.offsetSegundos };
+      if (idx > 0) {
+        resumeFrom = { chunkIndex: idx };
       }
     }
 
