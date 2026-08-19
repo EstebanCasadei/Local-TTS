@@ -148,7 +148,7 @@ export function ReadingPage() {
             className="flex min-h-0 flex-1 flex-col gap-4 bg-bg-primary p-4 md:p-8"
             inert={!expanded}
           >
-            <div className="mx-auto max-w-[1100px] w-full">
+            <div className="mx-auto flex min-h-0 w-full max-w-[1100px] flex-1 flex-col">
               <ReadingHeader
                 chapter="Contenido"
                 estimate={estimate}
