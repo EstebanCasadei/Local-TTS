@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { BookRow, ContinueCard, SearchIcon } from "../components/library";
 import { useLibrary } from "../hooks/useLibrary.ts";
-import { extractDocument, ACCEPT_ATTRIBUTE } from "../lib/extract";
+import { extractDocument, ACCEPT_ATTRIBUTE, type ExtractProgress } from "../lib/extract";
 import { ERROR_MESSAGES, ExtractionError } from "../lib/extract/types";
 import { chunkText } from "../lib/chunker";
 import { getBookRepository } from "../lib/books";
@@ -10,7 +10,7 @@ import UploadIcon from "../icons/UploadIcon.svg?react";
 
 type UploadState =
   | { status: "idle" }
-  | { status: "extracting"; fileName: string }
+  | { status: "extracting"; fileName: string; progress?: ExtractProgress }
   | { status: "error"; message: string };
 
 export function LibraryPage() {
@@ -32,7 +32,10 @@ export function LibraryPage() {
 
     try {
       // 1. Extract + clean the document text
-      const doc = await extractDocument(file);
+      const doc = await extractDocument(file, {
+        onProgress: (progress) =>
+          setUpload({ status: "extracting", fileName: file.name, progress }),
+      });
 
       // 2. Chunk all chapter text for TTS
       const allText = doc.chapters.map((ch) => ch.text).join("\n");
@@ -136,7 +139,11 @@ export function LibraryPage() {
 
       {upload.status === "extracting" && (
         <div className="mt-6 rounded-[8px] border border-border-primary bg-bg-secondary p-4 text-center">
-          <p className="font-p text-text-secondary">Procesando "{upload.fileName}"…</p>
+          <p className="font-p text-text-secondary">
+            Procesando "{upload.fileName}"…
+            {upload.progress?.phase === "pages" &&
+              ` Página ${upload.progress.done}/${upload.progress.total}`}
+          </p>
         </div>
       )}
 

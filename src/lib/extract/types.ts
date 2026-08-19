@@ -43,6 +43,13 @@ export interface Chapter {
   source: ChapterSource;
 }
 
+/** Progress reported by extractDocument/extractors during a long-running extraction. */
+export interface ExtractProgress {
+  phase: "reading" | "pages" | "chapters" | "cleaning";
+  done: number;
+  total: number;
+}
+
 /** What clean() produces — the final document the rest of the app uses. */
 export interface ExtractedDocument {
   kind: "txt" | "pdf" | "epub";

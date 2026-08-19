@@ -2,12 +2,17 @@
 // All extractors return the same shape (RawDocument) and the result always
 // passes through clean(), so the rest of the app never branches by format.
 //
-// Ported from the PoC (src/lib/extract/index.js). PDF and EPUB are lazy-loaded
-// — their heavy deps (pdfjs, jszip) only download if the user opens that file
-// type. For now they throw "not implemented" (#8/#9).
+// Ported from the PoC (src/lib/extract/index.js). PDF (#8) is lazy-loaded —
+// pdfjs-dist only downloads if the user opens a PDF. EPUB (#9) is still a stub.
 
 import { clean } from "../textCleanup";
-import { ErrorCode, ExtractionError, type ExtractedDocument, type RawDocument } from "./types";
+import {
+  ErrorCode,
+  ExtractionError,
+  type ExtractedDocument,
+  type ExtractProgress,
+  type RawDocument,
+} from "./types";
 import { extractTxt } from "./txt";
 
 export { ErrorCode, ExtractionError, ERROR_MESSAGES } from "./types";
@@ -16,6 +21,7 @@ export type {
   Chapter,
   ChapterSource,
   ExtractedDocument,
+  ExtractProgress,
   RawChapter,
   RawDocument,
   TextBlock,
@@ -39,12 +45,6 @@ const BY_MIME: Record<string, "txt" | "pdf" | "epub"> = {
 
 export const ACCEPT_ATTRIBUTE =
   ".txt,.md,.pdf,.epub,text/plain,application/pdf,application/epub+zip";
-
-export interface ExtractProgress {
-  phase: "reading" | "pages" | "chapters" | "cleaning";
-  done: number;
-  total: number;
-}
 
 /** Detects the file kind by extension, falling back to mimetype. */
 export function detectKind(file: File): "txt" | "pdf" | "epub" {
@@ -73,11 +73,15 @@ export async function extractDocument(
   let raw: RawDocument;
   if (kind === "txt") {
     raw = await extractTxt(file);
+  } else if (kind === "pdf") {
+    // Dynamic import: pdfjs-dist only downloads once a user opens a PDF.
+    const { extractPdf } = await import("./pdf");
+    raw = await extractPdf(file, onProgress);
   } else {
-    // PDF (#8) and EPUB (#9) are lazy-loaded in the PoC; for now they're stubs.
+    // EPUB (#9) is still a stub.
     throw new ExtractionError(
       ErrorCode.UNSUPPORTED_TYPE,
-      `${kind.toUpperCase()} extraction not implemented yet (#${kind === "pdf" ? "8" : "9"})`,
+      "EPUB extraction not implemented yet (#9)",
     );
   }
 
