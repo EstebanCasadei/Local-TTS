@@ -64,14 +64,14 @@ function buildTokens(
     const fallbackDuration = (chunkChars / totalChars) * duration;
 
     const hasRealStart = chunkStartTimes[i] != null;
-    const chunkStart = chunkStartTimes[i] ?? fallbackStart;
     const nextStart = chunkStartTimes[i + 1];
 
-    // When we have real timing data, the last known chunk gets the remaining
-    // duration (duration - chunkStart). But when chunkStart is itself a
-    // fallback (no real data), use the proportional fallbackDuration —
-    // otherwise the first chunk hogs the entire timeline and every word in
-    // it spans a huge range, so only the first word gets highlighted.
+    // When we have real timing data, use it. When we don't, push the chunk
+    // far into the future so its words can never be matched by a real
+    // playback position — they'll appear as "future" words with no timing.
+    // This prevents the fallback from placing unstarted chunks at wrong
+    // positions that interfere with the active word lookup.
+    const chunkStart = chunkStartTimes[i] ?? Number.MAX_SAFE_INTEGER;
     const chunkDuration =
       nextStart != null
         ? nextStart - chunkStart
@@ -79,7 +79,7 @@ function buildTokens(
           ? duration > chunkStart
             ? duration - chunkStart
             : fallbackDuration
-          : fallbackDuration;
+          : 0;
 
     let localCharOffset = 0;
     for (const tokenText of raw) {
