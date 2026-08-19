@@ -72,6 +72,7 @@ export function ReadingPage() {
     chunkIds,
     activeChunkIndex: tts.activeChunkIndex,
     position: tts.currentPosition,
+    chunkStartTimes: tts.chunkStartTimes,
     isPlaying: tts.isPlaying,
   });
 
@@ -85,11 +86,11 @@ export function ReadingPage() {
 
     // Find the resume chunk from saved progress.
     const saved = progressRef.current;
-    let resumeFrom: { chunkIndex: number } | undefined;
+    let resumeFrom: { chunkIndex: number; offsetLocal: number } | undefined;
     if (saved && saved.chunkActualId) {
       const idx = chunkIds.indexOf(saved.chunkActualId);
-      if (idx > 0) {
-        resumeFrom = { chunkIndex: idx };
+      if (idx > 0 || (idx === 0 && (saved.offsetLocal ?? 0) > 0)) {
+        resumeFrom = { chunkIndex: idx, offsetLocal: saved.offsetLocal ?? 0 };
       }
     }
 
@@ -223,6 +224,7 @@ export function ReadingPage() {
                   chunks={karaokeChunks}
                   duration={karaokeDuration}
                   initialChunkIndex={showSaved ? savedChunkIndex : -1}
+                  initialOffsetLocal={showSaved ? (progress?.offsetLocal ?? 0) : 0}
                   onSeek={tts.seek}
                   position={displayPosition}
                 />

@@ -16,6 +16,8 @@ type KaraokeTextProps = {
   onSeek?: (time: number) => void;
   /** Chunk to highlight before audio loads (from saved progress). -1 = none. */
   initialChunkIndex?: number;
+  /** Offset within the saved chunk for word-level highlight before audio loads. */
+  initialOffsetLocal?: number;
 };
 
 const WORD_CLASS = "cursor-default rounded-[2px] transition-colors duration-100";
@@ -160,6 +162,7 @@ export function KaraokeText({
   duration,
   onSeek,
   initialChunkIndex = -1,
+  initialOffsetLocal = 0,
 }: KaraokeTextProps) {
   const activeRef = useRef<HTMLSpanElement | null>(null);
   const chunkRef = useRef<HTMLSpanElement | null>(null);
@@ -172,10 +175,41 @@ export function KaraokeText({
     [chunks, chunkStartTimes, duration],
   );
 
-  const activeIndex = useMemo(
-    () => findActiveWordIndex(tokens, position, duration),
-    [tokens, position, duration],
-  );
+  // Before audio loads (duration <= 0), estimate word-level highlighting
+  // within the saved chunk using initialOffsetLocal. We estimate the chunk's
+  // duration from its text length (~15 chars/sec for Piper Spanish) so
+  // buildTokens can distribute word timings proportionally.
+  const ESTIMATED_CHARS_PER_SEC = 15;
+  const initialChunkDuration =
+    initialChunkIndex >= 0 && chunks[initialChunkIndex]
+      ? chunks[initialChunkIndex].length / ESTIMATED_CHARS_PER_SEC
+      : 0;
+
+  const activeIndex = useMemo(() => {
+    if (duration > 0) {
+      return findActiveWordIndex(tokens, position, duration);
+    }
+
+    // Before audio: find the active word within the saved chunk using
+    // the estimated chunk duration and initialOffsetLocal.
+    if (initialChunkIndex < 0 || initialChunkDuration <= 0) return -1;
+
+    // Build a mini timeline for just the saved chunk's words.
+    const chunkTokens = tokens.filter((t) => !t.isSpace && t.chunkIndex === initialChunkIndex);
+    const chunkChars = chunkTokens.reduce((s, t) => s + t.text.length, 0);
+    if (chunkChars === 0) return -1;
+
+    let charOffset = 0;
+    for (const token of chunkTokens) {
+      const wordStart = (charOffset / chunkChars) * initialChunkDuration;
+      const wordEnd = ((charOffset + token.text.length) / chunkChars) * initialChunkDuration;
+      if (initialOffsetLocal >= wordStart && initialOffsetLocal < wordEnd) {
+        return tokens.indexOf(token);
+      }
+      charOffset += token.text.length;
+    }
+    return -1;
+  }, [tokens, position, duration, initialChunkIndex, initialChunkDuration, initialOffsetLocal]);
 
   // Before audio loads (duration <= 0), use initialChunkIndex from saved
   // progress. Once audio is playing (duration > 0), use real word timing.

@@ -44,7 +44,7 @@ export interface UseTts extends TtsState {
     bookId?: string,
     chunkIds?: string[],
     preChunked?: string[],
-    resumeFrom?: { chunkIndex: number },
+    resumeFrom?: { chunkIndex: number; offsetLocal: number },
   ) => Promise<void>;
   play: () => void;
   pause: () => void;
@@ -134,7 +134,7 @@ export function useTts(): UseTts {
       bookId?: string,
       chunkIds?: string[],
       preChunked?: string[],
-      resumeFrom?: { chunkIndex: number },
+      resumeFrom?: { chunkIndex: number; offsetLocal: number },
     ) => {
       const client = clientRef.current;
       if (!client) return;
@@ -238,11 +238,9 @@ export function useTts(): UseTts {
                 if (!firstChunkPlayed) {
                   if (resumeFrom && index >= resumeFrom.chunkIndex) {
                     firstChunkPlayed = true;
-                    // seekToChunk sets wantPlay=true and starts playing from
-                    // the beginning of the saved chunk. We lose word-level
-                    // precision within the chunk, but we land on the correct
-                    // sentence — much better than starting from 0.
-                    void q.seekToChunk(resumeFrom.chunkIndex);
+                    // seekToChunk with offsetLocal gives word-level resume:
+                    // playback starts from the exact position within the chunk.
+                    void q.seekToChunk(resumeFrom.chunkIndex, resumeFrom.offsetLocal);
                   } else if (!resumeFrom) {
                     firstChunkPlayed = true;
                     void q.play();

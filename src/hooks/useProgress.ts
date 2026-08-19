@@ -22,19 +22,22 @@ export function useProgress(params: {
   chunkIds: string[];
   activeChunkIndex: number;
   position: number;
+  chunkStartTimes: (number | undefined)[];
   isPlaying: boolean;
 }): void {
-  const { bookId, chunkIds, activeChunkIndex, position, isPlaying } = params;
+  const { bookId, chunkIds, activeChunkIndex, position, chunkStartTimes, isPlaying } = params;
 
   // Refs so the interval callback always sees the latest values without
   // resetting the timer on every position change (which fires ~10×/sec).
   const positionRef = useRef(position);
   const activeChunkIndexRef = useRef(activeChunkIndex);
+  const chunkStartTimesRef = useRef(chunkStartTimes);
   const isPlayingRef = useRef(isPlaying);
   const wasPlayingRef = useRef(false);
 
   positionRef.current = position;
   activeChunkIndexRef.current = activeChunkIndex;
+  chunkStartTimesRef.current = chunkStartTimes;
   isPlayingRef.current = isPlaying;
 
   const saveNow = useRef<(() => void) | null>(null);
@@ -51,10 +54,16 @@ export function useProgress(params: {
     // reset. Saving here would overwrite real progress with a fresh start.
     if (positionRef.current <= 0) return;
 
+    // Compute the local offset within the chunk for word-level resume.
+    // globalPosition - chunkStart = how far into the current chunk we are.
+    const chunkStart = chunkStartTimesRef.current[idx] ?? 0;
+    const offsetLocal = Math.max(0, positionRef.current - chunkStart);
+
     const progress: Progress = {
       bookId,
       chunkActualId: chunkId,
       offsetSegundos: positionRef.current,
+      offsetLocal,
       fechaUltimaEscucha: Date.now(),
     };
 
