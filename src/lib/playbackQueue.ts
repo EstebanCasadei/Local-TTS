@@ -76,7 +76,7 @@ export class PlaybackQueue {
   private pendingLocalOffset = 0; // offset within the first chunk when re-scheduling
 
   /** Start time of each chunk in the audio's internal timeline. */
-  private chunkStartTimes: number[] = [];
+  private chunkStartTimes: (number | undefined)[] = [];
   /** Cached snapshot of chunkStartTimes — only rebuilt when values change. */
   private chunkStartTimesSnapshot: (number | undefined)[] = [];
 
@@ -184,6 +184,13 @@ export class PlaybackQueue {
     this.clearScheduled();
     this.pendingLocalOffset = localOffset;
     this.timelineEnd = offset;
+    // Invalidate any stale chunk start times for chunks beyond the new
+    // playback point. Without this, buildTokens can see an old `nextStart`
+    // from a previous playback/seek and inflate the current chunk's
+    // duration, making the active word highlight lag behind the real audio.
+    for (let i = targetIndex + 1; i < this.total; i++) {
+      this.chunkStartTimes[i] = undefined;
+    }
 
     if (this.wantPlay) {
       if (this.ctx.state === "suspended") await this.ctx.resume();
@@ -224,11 +231,24 @@ export class PlaybackQueue {
       ? Math.min(Math.max(0, localTime), Math.max(0, targetBuffer.duration - 0.01))
       : Math.max(0, localTime);
 
-    this.clearScheduled();
+    // Set nextIndex BEFORE clearScheduled() so that clearScheduled re-adds
+    // the target chunk's buffer to entries (it re-adds index >= nextIndex).
+    // Otherwise, seeking backward to an already-played chunk would find it
+    // missing from entries (deleted when it originally finished playing)
+    // and pump() would wait forever for a push() that's never coming — see
+    // seek()'s identical fix above.
     this.nextIndex = index;
+    this.clearScheduled();
     this.pendingLocalOffset = clampedLocalTime;
     this.timelineEnd = globalTime;
     this.wantPlay = true;
+    // Invalidate stale chunk start times beyond the new playback point so
+    // the karaoke doesn't use an out-of-date `nextStart` for the chunk being
+    // entered (or any chunk after it), which would make its word timings
+    // stretch way beyond the actual audio.
+    for (let i = index + 1; i < this.total; i++) {
+      this.chunkStartTimes[i] = undefined;
+    }
 
     if (this.ctx.state === "suspended") await this.ctx.resume();
     this.startTicker();

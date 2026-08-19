@@ -165,4 +165,34 @@ describe("PlaybackQueue", () => {
 
     expect(queue.timeAtChunk(0)).toBe(0); // preserved, not undefined
   });
+
+  it("seekToChunk backward re-schedules an already-played chunk", async () => {
+    const ctx = createMockCtx();
+    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    queue.setPlan(3);
+    queue.push(0, createMockBuffer(2));
+    queue.push(1, createMockBuffer(3));
+    queue.push(2, createMockBuffer(1));
+
+    await queue.play();
+    // Simulate chunk 0 finishing playback — this is when the queue drops it
+    // from `entries` (it's only kept in `buffers` for seeking).
+    ctx._sources[0].onended?.();
+
+    // Jump forward, past chunk 0.
+    await queue.seekToChunk(2);
+    const sourcesBeforeBackSeek = ctx._sources.length;
+
+    // Jump back to chunk 0. Its buffer is still in memory (`buffers`), so
+    // this must schedule it again instead of waiting forever for a push()
+    // that already happened.
+    await queue.seekToChunk(0);
+
+    // pump() re-schedules every buffer from nextIndex onward in one pass, so
+    // chunk 0's buffer (duration 2) should be among the newly created sources
+    // — not just chunks 1/2, which were already scheduled before the seek.
+    const newSources = ctx._sources.slice(sourcesBeforeBackSeek);
+    expect(newSources.length).toBeGreaterThan(0);
+    expect(newSources.some((s) => s.buffer?.duration === 2)).toBe(true);
+  });
 });

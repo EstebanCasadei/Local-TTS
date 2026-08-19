@@ -2,20 +2,39 @@ import type { SVGProps } from "react";
 import DotsIconSvg from "../../icons/DotsIcon.svg?react";
 import PlayIconSvg from "../../icons/PlayIcon.svg?react";
 import SearchIconSvg from "../../icons/SearchIcon.svg?react";
-import type { Book } from "../../types/book.ts";
+import type { Book, Progress } from "../../types/book.ts";
 
 const LONG_DATE = new Intl.DateTimeFormat("es", { dateStyle: "long" });
 const SHORT_DATE = new Intl.DateTimeFormat("es", { dateStyle: "short" });
 
-/** "Creado el 12 de octubre de 2025 · PDF" on md+, "12/10/25 · PDF" below. */
-export function BookMeta({ book }: { book: Book }) {
+/**
+ * "Creado el 12 de octubre de 2025 · PDF · Cap. 3/6: Introducción" on md+,
+ * "12/10/25 · PDF · Cap. 3/6: Introducción" below. The chapter segment is
+ * omitted for single-chapter books, and truncates with the rest of the line.
+ */
+export function BookMeta({ book, progress }: { book: Book; progress?: Progress | null }) {
   const format = book.formatoOriginal.toUpperCase();
+  const totalChapters = book.capitulos.length;
+  const currentChapterPosition =
+    progress?.capituloId != null
+      ? book.capitulos.findIndex((c) => c.indice === progress.capituloId)
+      : -1;
+  const currentChapter =
+    currentChapterPosition >= 0 ? book.capitulos[currentChapterPosition] : null;
+
   return (
     <p className="font-label truncate text-text-secondary">
       <span className="md:hidden">{SHORT_DATE.format(book.fechaCreacion)}</span>
       <span className="hidden md:inline">Creado el {LONG_DATE.format(book.fechaCreacion)}</span>
       {" • "}
       {format}
+      {totalChapters > 1 && (
+        <>
+          {" • "}
+          {`Cap. ${currentChapterPosition >= 0 ? currentChapterPosition + 1 : 1}/${totalChapters}`}
+          {currentChapter && `: ${currentChapter.titulo}`}
+        </>
+      )}
     </p>
   );
 }

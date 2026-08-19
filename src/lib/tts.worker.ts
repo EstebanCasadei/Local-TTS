@@ -5,6 +5,7 @@
 // Protocol (main → worker):
 //   { type: "download",   id, voiceId }
 //   { type: "synthesize", id, voiceId, chunks: string[], bookId?, chunkIds? }
+//   { type: "reorder",    targetIndex } — prioritize synthesizing this chunk next
 //   { type: "cancel" }
 //
 // When bookId + chunkIds are provided, the worker:
@@ -23,6 +24,7 @@
 //   { type: "error",             id, message }
 import * as tts from "@mintplex-labs/piper-tts-web";
 import { audioLocal, readChunk, saveChunk, textHash } from "./audioStore";
+import { reorderQueue } from "./reorderQueue";
 
 // In a worker, self is DedicatedWorkerGlobalScope with postMessage(message, transfer?).
 // The tsconfig includes DOM (not WebWorker) for the app, so we cast to the worker
@@ -52,6 +54,23 @@ let session: tts.TtsSession | null = null;
 let sessionVoiceId: string | null = null;
 let cancelled = false;
 let activeId: number | null = null;
+
+// Indices still needing synthesis, consumed in order by handleSynthesize's
+// loop. Mutable at module scope so a "reorder" message (sent when the user
+// jumps to a chunk far ahead — e.g. picking a new chapter) can move that
+// chunk and everything after it to the front, instead of making the user
+// wait for every chunk in between to synthesize first. The skipped-over
+// chunks aren't dropped, just deferred — they're re-appended after, so the
+// whole book still ends up fully cached.
+let remainingOrder: number[] = [];
+// A "reorder" can arrive while remainingOrder is still empty — e.g. during
+// the OPFS cache check or the (multi-second) model load, both of which run
+// before remainingOrder is populated. Without tracking it separately, that
+// request would silently no-op (reorderQueue finds nothing to move) and get
+// wiped out the moment remainingOrder is assigned. Applying it there instead
+// is what makes prioritizing work even for jumps made right after a chapter
+// switch, not just once synthesis is already under way.
+let pendingPriority: number | null = null;
 
 async function getSession(voiceId: string): Promise<tts.TtsSession> {
   if (session && sessionVoiceId === voiceId) return session;
@@ -110,6 +129,7 @@ async function handleSynthesize(
   chunkIds?: string[],
 ): Promise<void> {
   cancelled = false;
+  pendingPriority = null;
   const failed: number[] = [];
 
   // When bookId + chunkIds are provided, check OPFS cache before synthesizing.
@@ -154,8 +174,11 @@ async function handleSynthesize(
   await getSession(voiceId);
   post({ type: "voice-ready", id, voiceId });
 
-  for (const index of needSynthesis) {
+  remainingOrder =
+    pendingPriority != null ? reorderQueue(needSynthesis, pendingPriority) : needSynthesis;
+  while (remainingOrder.length > 0) {
     if (cancelled) break;
+    const index = remainingOrder.shift()!;
 
     let lastError: Error | null = null;
     // One retry per chunk: failures are often transient (WASM memory, session
@@ -195,6 +218,8 @@ async function handleSynthesize(
     }
   }
 
+  remainingOrder = [];
+  pendingPriority = null;
   post({
     type: "synthesize-done",
     id,
@@ -215,10 +240,18 @@ async function handleSynthesize(
 let queue: Promise<void> = Promise.resolve();
 
 self.addEventListener("message", (event: MessageEvent) => {
-  const { type, id, voiceId, chunks, bookId, chunkIds } = event.data ?? {};
+  const { type, id, voiceId, chunks, bookId, chunkIds, targetIndex } = event.data ?? {};
 
   if (type === "cancel") {
     cancelled = true;
+    return;
+  }
+
+  // Handled synchronously, outside the request queue: it needs to affect the
+  // synthesis loop that's currently running, not wait behind it.
+  if (type === "reorder") {
+    pendingPriority = targetIndex as number;
+    remainingOrder = reorderQueue(remainingOrder, pendingPriority);
     return;
   }
 

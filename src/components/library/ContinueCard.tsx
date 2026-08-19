@@ -29,7 +29,7 @@ export function ContinueCard({ book }: { book: Book }) {
           to={`/reading?book=${book.id}`}
         >
           <h3 className="font-h3 font-semibold">{book.titulo}</h3>
-          <BookMeta book={book} />
+          <BookMeta book={book} progress={progress} />
         </Link>
         <BookMenu />
       </div>

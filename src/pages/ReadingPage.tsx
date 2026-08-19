@@ -30,7 +30,7 @@ export function ReadingPage() {
   const [searchParams] = useSearchParams();
   const bookId = searchParams.get("book");
 
-  const { chunks, progress, loading } = useBook(bookId);
+  const { chunks, progress, capitulos, loading } = useBook(bookId);
   const tts = useTts();
   const [panel, setPanel] = useState<"voices" | "audio" | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -55,6 +55,7 @@ export function ReadingPage() {
   // activeChunkIndex maps directly to a repository chunk ID.
   const chunkTexts = useMemo(() => chunks.map((c) => c.texto), [chunks]);
   const chunkIds = useMemo(() => chunks.map((c) => c.id), [chunks]);
+  const chunkCapituloIds = useMemo(() => chunks.map((c) => c.capituloId), [chunks]);
   const totalChars = useMemo(
     () => chunkTexts.reduce((sum, text) => sum + text.length, 0),
     [chunkTexts],
@@ -74,6 +75,7 @@ export function ReadingPage() {
   useProgress({
     bookId,
     chunkIds,
+    chunkCapituloIds,
     activeChunkIndex: tts.activeChunkIndex,
     position: tts.currentPosition,
     chunkStartTimes: tts.chunkStartTimes,
@@ -156,6 +158,30 @@ export function ReadingPage() {
   // The string parser assumed IDs like "c0001" → 1, but that's fragile and
   // can be wrong if the ID format ever changes.
   const savedChunkIndex = progress ? Math.max(0, chunkIds.indexOf(progress.chunkActualId)) : 0;
+  const displayChunkIndex = showSaved ? savedChunkIndex : tts.activeChunkIndex;
+  const currentCapituloId = chunks[displayChunkIndex]?.capituloId ?? null;
+  const chapterTitle = capitulos.find((c) => c.indice === currentCapituloId)?.titulo ?? "";
+
+  // Scope the karaoke text to the chunks of the current chapter only, instead
+  // of rendering the whole book — chunks are stored contiguously per chapter
+  // (see LibraryPage), so the range is a simple slice. Playback itself is
+  // unaffected: audio keeps streaming continuously across the whole book,
+  // only the displayed text section changes as the chapter changes.
+  const activeCapituloId = currentCapituloId ?? capitulos[0]?.indice ?? null;
+  const chapterStart = chunks.findIndex((c) => c.capituloId === activeCapituloId);
+  let chapterEnd = chapterStart;
+  while (chapterEnd >= 0 && chunks[chapterEnd]?.capituloId === activeCapituloId) chapterEnd++;
+  const [rangeStart, rangeEnd] =
+    chapterStart >= 0 ? [chapterStart, chapterEnd] : [0, chunks.length];
+  const chapterKaraokeChunks = karaokeChunks.slice(rangeStart, rangeEnd);
+  // +1 so the last chunk of the chapter still knows the next chunk's start
+  // time (for its estimated duration), even though that next chunk belongs
+  // to the following chapter and isn't included in chapterKaraokeChunks.
+  const chapterChunkStartTimes = tts.chunkStartTimes.slice(rangeStart, rangeEnd + 1);
+  const chapterInitialChunkIndex =
+    showSaved && savedChunkIndex >= rangeStart && savedChunkIndex < rangeEnd
+      ? savedChunkIndex - rangeStart
+      : -1;
 
   // When idle with no audio loaded, tts.duration is 0. We can't do word-level
   // highlighting without real timing data, so we pass initialChunkIndex to
@@ -235,21 +261,31 @@ export function ReadingPage() {
           >
             <div className="mx-auto flex min-h-0 w-full max-w-[1100px] flex-1 flex-col">
               <ReadingHeader
-                chapter="Contenido"
+                activeChapter={currentCapituloId}
+                chapter={chapterTitle}
+                chapters={capitulos}
                 estimate={estimate}
                 format={format}
+                onSelectChapter={(indice) => {
+                  const chunkIndex = chunks.findIndex((c) => c.capituloId === indice);
+                  if (chunkIndex >= 0) tts.seekToChunk(chunkIndex);
+                }}
                 showChapter={expanded}
                 title={bookTitle || "Documento"}
               />
 
               <div className="min-h-0 flex-1 mt-4">
                 <KaraokeText
-                  chunkStartTimes={tts.chunkStartTimes}
-                  chunks={karaokeChunks}
+                  chunkStartTimes={chapterChunkStartTimes}
+                  chunks={chapterKaraokeChunks}
                   duration={karaokeDuration}
-                  initialChunkIndex={showSaved ? savedChunkIndex : -1}
+                  initialChunkIndex={chapterInitialChunkIndex}
                   initialOffsetLocal={showSaved ? (progress?.offsetLocal ?? 0) : 0}
-                  onSeek={tts.seek}
+                  secondsPerChar={secondsPerChar > 0 ? secondsPerChar : undefined}
+                  onSeek={(localChunkIndex, localOffset) =>
+                    tts.seekToChunk(rangeStart + localChunkIndex, localOffset)
+                  }
+                  panelExpanded={expanded}
                   position={displayPosition}
                 />
               </div>

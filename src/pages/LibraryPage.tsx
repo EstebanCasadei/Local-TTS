@@ -37,34 +37,39 @@ export function LibraryPage() {
           setUpload({ status: "extracting", fileName: file.name, progress }),
       });
 
-      // 2. Chunk all chapter text for TTS
-      const allText = doc.chapters.map((ch) => ch.text).join("\n");
-      const chunkStrings = chunkText(allText);
-      if (chunkStrings.length === 0) {
+      // 2. Chunk each chapter separately so chunks know which chapter they belong to.
+      const bookId = crypto.randomUUID();
+      const now = Date.now();
+      const chunks: Chunk[] = [];
+      let chunkIndex = 0;
+      for (const ch of doc.chapters) {
+        for (const text of chunkText(ch.text)) {
+          chunks.push({
+            id: `c${String(chunkIndex).padStart(4, "0")}`,
+            bookId,
+            indiceOrden: chunkIndex,
+            capituloId: ch.index,
+            texto: text,
+            voiceId: "es_ES-davefx-medium",
+          });
+          chunkIndex++;
+        }
+      }
+      if (chunks.length === 0) {
         throw new ExtractionError("EMPTY_DOCUMENT" as never, file.name);
       }
 
       // 3. Create the Book + Chunk records in the repository
-      const bookId = crypto.randomUUID();
-      const now = Date.now();
       const book: Book = {
         id: bookId,
         titulo: doc.title,
         autor: doc.meta.author ?? null,
         formatoOriginal: doc.kind,
-        totalChunks: chunkStrings.length,
+        totalChunks: chunks.length,
         capitulos: doc.chapters.map((ch) => ({ indice: ch.index, titulo: ch.title })),
         fechaCreacion: now,
         fechaModificacion: now,
       };
-      const chunks: Chunk[] = chunkStrings.map((texto, i) => ({
-        id: `c${String(i).padStart(4, "0")}`,
-        bookId,
-        indiceOrden: i,
-        capituloId: null,
-        texto,
-        voiceId: "es_ES-davefx-medium",
-      }));
 
       const repo = getBookRepository();
       await repo.saveBook(book);

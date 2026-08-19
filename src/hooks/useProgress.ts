@@ -20,24 +20,35 @@ const SAVE_INTERVAL_MS = 5000; // debounce: save at most every 5 seconds
 export function useProgress(params: {
   bookId: string | null;
   chunkIds: string[];
+  chunkCapituloIds: (number | null)[];
   activeChunkIndex: number;
   position: number;
   chunkStartTimes: (number | undefined)[];
   isPlaying: boolean;
 }): void {
-  const { bookId, chunkIds, activeChunkIndex, position, chunkStartTimes, isPlaying } = params;
+  const {
+    bookId,
+    chunkIds,
+    chunkCapituloIds,
+    activeChunkIndex,
+    position,
+    chunkStartTimes,
+    isPlaying,
+  } = params;
 
   // Refs so the interval callback always sees the latest values without
   // resetting the timer on every position change (which fires ~10×/sec).
   const positionRef = useRef(position);
   const activeChunkIndexRef = useRef(activeChunkIndex);
   const chunkStartTimesRef = useRef(chunkStartTimes);
+  const chunkCapituloIdsRef = useRef(chunkCapituloIds);
   const isPlayingRef = useRef(isPlaying);
   const wasPlayingRef = useRef(false);
 
   positionRef.current = position;
   activeChunkIndexRef.current = activeChunkIndex;
   chunkStartTimesRef.current = chunkStartTimes;
+  chunkCapituloIdsRef.current = chunkCapituloIds;
   isPlayingRef.current = isPlaying;
 
   const saveNow = useRef<(() => void) | null>(null);
@@ -64,6 +75,7 @@ export function useProgress(params: {
       chunkActualId: chunkId,
       offsetSegundos: positionRef.current,
       offsetLocal,
+      capituloId: chunkCapituloIdsRef.current[idx] ?? null,
       fechaUltimaEscucha: Date.now(),
     };
 

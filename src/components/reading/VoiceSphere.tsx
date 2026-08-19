@@ -167,7 +167,7 @@ const PARAMS = {
   fresnel: 0.476,
   spec: 0,
   color0: "#2f3d61",
-  color1: "#3c5fb6",
+  color1: "#2e4377",
   color2: "#4f57ba",
   color3: "#818cf8",
   color4: "#2b4377",
@@ -287,7 +287,7 @@ export function VoiceSphere({
 
   return (
     <div aria-hidden="true" className={`relative ${className}`} ref={wrapperRef}>
-      <div className="absolute inset-0 bg-bg-voicesphere blur-[32px] scale-120 rounded-full" />
+      <div className="absolute inset-0 bg-bg-voicesphere blur-[32px] scale-120 rounded-full opacity-50" />
       {loading && <div className="absolute -inset-1.5 rounded-full voicesphere-loading-ring" />}
 
       <div className="relative overflow-hidden rounded-full size-full">

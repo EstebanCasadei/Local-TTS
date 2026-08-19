@@ -6,6 +6,14 @@ type WordToken = {
   chunkIndex: number;
   start: number;
   end: number;
+  /**
+   * Offset within the chunk (not the absolute timeline). Computed directly
+   * from the word's position in the chunk, independent of `start` — `start`
+   * is offset from `chunkStart`, which is Number.MAX_SAFE_INTEGER for chunks
+   * with no known real start time yet. Subtracting a fallback like 0 from
+   * that `start` to recover a local offset would produce a huge bogus value.
+   */
+  localOffset: number;
 };
 
 type KaraokeTextProps = {
@@ -13,11 +21,25 @@ type KaraokeTextProps = {
   chunkStartTimes: (number | undefined)[];
   position: number;
   duration: number;
-  onSeek?: (time: number) => void;
+  /**
+   * Called with the clicked word's chunk index (local to `chunks`) and its
+   * offset within that chunk — NOT an absolute time. PlaybackQueue.seek(time)
+   * assumes every chunk from 0 up to the target is already buffered
+   * contiguously, which no longer holds once chunks can synthesize
+   * out of order (chapter jumps prioritize a chunk ahead of earlier ones).
+   * seekToChunk(index, offset) works regardless of synthesis order.
+   */
+  onSeek?: (chunkIndex: number, localOffset: number) => void;
   /** Chunk to highlight before audio loads (from saved progress). -1 = none. */
   initialChunkIndex?: number;
   /** Offset within the saved chunk for word-level highlight before audio loads. */
   initialOffsetLocal?: number;
+  /** Estimated seconds per character from real synthesized audio, used to
+   * size chunks whose next real start isn't known yet. Falls back to a
+   * hardcoded rate if no audio has finished. */
+  secondsPerChar?: number;
+  /** Whether the text panel is visible. When hidden, auto-scroll is disabled. */
+  panelExpanded?: boolean;
 };
 
 const WORD_CLASS = "cursor-default rounded-[2px] transition-colors duration-100";
@@ -27,6 +49,9 @@ const PAST_CLASS = "text-text-secondary";
 const FUTURE_CLASS = "text-text-primary";
 
 const SCROLL_PAUSE_MS = 3000;
+/** Rough Piper Spanish synthesis rate, used to estimate a chunk's spoken
+ * duration when its real one isn't known yet (see buildTokens). */
+const ESTIMATED_CHARS_PER_SEC = 15;
 
 /** Splits text into words and whitespace tokens. */
 function splitWords(text: string): string[] {
@@ -37,22 +62,9 @@ function splitWords(text: string): string[] {
 function buildTokens(
   chunks: string[],
   chunkStartTimes: (number | undefined)[],
-  duration: number,
+  secondsPerChar = 1 / ESTIMATED_CHARS_PER_SEC,
 ): WordToken[] {
-  const totalChars = Math.max(
-    1,
-    chunks.reduce(
-      (sum, chunk) =>
-        sum +
-        splitWords(chunk)
-          .filter((t) => !/^\s+$/.test(t))
-          .reduce((s, w) => s + w.length, 0),
-      0,
-    ),
-  );
-
   const tokens: WordToken[] = [];
-  let globalCharOffset = 0;
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
@@ -60,9 +72,6 @@ function buildTokens(
     const words = raw.filter((t) => !/^\s+$/.test(t));
     const chunkChars = words.reduce((s, w) => s + w.length, 0);
 
-    const fallbackDuration = (chunkChars / totalChars) * duration;
-
-    const hasRealStart = chunkStartTimes[i] != null;
     const nextStart = chunkStartTimes[i + 1];
 
     // When we have real timing data, use it. When we don't, push the chunk
@@ -71,14 +80,14 @@ function buildTokens(
     // This prevents the fallback from placing unstarted chunks at wrong
     // positions that interfere with the active word lookup.
     const chunkStart = chunkStartTimes[i] ?? Number.MAX_SAFE_INTEGER;
-    const chunkDuration =
-      nextStart != null
-        ? nextStart - chunkStart
-        : hasRealStart
-          ? duration > chunkStart
-            ? duration - chunkStart
-            : fallbackDuration
-          : 0;
+    // When the next chunk's real start isn't known yet, estimate this
+    // chunk's own duration from its text length instead of falling back to
+    // the book's total synthesized duration so far. That total grows from
+    // chunks synthesized anywhere in the book (chapter jumps prioritize
+    // far-away chunks out of order), so it has no relation to how long THIS
+    // one chunk actually takes — using it stretched word timings far beyond
+    // the chunk's real audio, freezing the highlight mid-word.
+    const chunkDuration = nextStart != null ? nextStart - chunkStart : chunkChars * secondsPerChar;
 
     let localCharOffset = 0;
     for (const tokenText of raw) {
@@ -89,12 +98,13 @@ function buildTokens(
           chunkIndex: i,
           start: 0,
           end: 0,
+          localOffset: 0,
         });
         continue;
       }
 
-      const start =
-        chunkChars > 0 ? chunkStart + (localCharOffset / chunkChars) * chunkDuration : chunkStart;
+      const wordLocalOffset = chunkChars > 0 ? (localCharOffset / chunkChars) * chunkDuration : 0;
+      const start = chunkStart + wordLocalOffset;
       const end =
         chunkChars > 0
           ? chunkStart + ((localCharOffset + tokenText.length) / chunkChars) * chunkDuration
@@ -106,12 +116,11 @@ function buildTokens(
         chunkIndex: i,
         start,
         end,
+        localOffset: wordLocalOffset,
       });
 
       localCharOffset += tokenText.length;
     }
-
-    globalCharOffset += chunkChars;
 
     if (i < chunks.length - 1) {
       tokens.push({
@@ -120,6 +129,7 @@ function buildTokens(
         chunkIndex: -1,
         start: 0,
         end: 0,
+        localOffset: 0,
       });
     }
   }
@@ -131,22 +141,28 @@ function buildTokens(
 function findActiveWordIndex(tokens: WordToken[], position: number, duration: number): number {
   if (duration <= 0) return -1;
 
+  // Return the LAST word whose range contains position, not the first. When
+  // chunk timings overlap due to stale or out-of-order chunkStartTimes, the
+  // first matching word can be from an earlier chunk whose end has been
+  // stretched far into the future; the last matching word is the one most
+  // likely to correspond to the actual audio at this moment.
+  let match = -1;
   let lastWordIndex = -1;
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
     if (token.isSpace) continue;
     lastWordIndex = i;
     if (position >= token.start && position < token.end) {
-      return i;
+      match = i;
     }
   }
 
   // If we've passed the end of all words, highlight the last one.
-  if (position >= duration && lastWordIndex >= 0) {
+  if (match < 0 && position >= duration && lastWordIndex >= 0) {
     return lastWordIndex;
   }
 
-  return -1;
+  return match;
 }
 
 /**
@@ -162,23 +178,35 @@ export function KaraokeText({
   onSeek,
   initialChunkIndex = -1,
   initialOffsetLocal = 0,
+  secondsPerChar,
+  panelExpanded = true,
 }: KaraokeTextProps) {
   const activeRef = useRef<HTMLSpanElement | null>(null);
   const chunkRef = useRef<HTMLSpanElement | null>(null);
   const [scrollPaused, setScrollPaused] = useState(false);
+  const [panelStable, setPanelStable] = useState(panelExpanded);
   const autoScrollRef = useRef(false);
   const pauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Wait for the text panel slide-in transition to finish before auto-scrolling.
+  useEffect(() => {
+    if (!panelExpanded) {
+      setPanelStable(false);
+      return;
+    }
+    const t = setTimeout(() => setPanelStable(true), 320);
+    return () => clearTimeout(t);
+  }, [panelExpanded]);
+
   const tokens = useMemo(
-    () => buildTokens(chunks, chunkStartTimes, duration),
-    [chunks, chunkStartTimes, duration],
+    () => buildTokens(chunks, chunkStartTimes, secondsPerChar),
+    [chunks, chunkStartTimes, secondsPerChar],
   );
 
   // Before audio loads (duration <= 0), estimate word-level highlighting
   // within the saved chunk using initialOffsetLocal. We estimate the chunk's
-  // duration from its text length (~15 chars/sec for Piper Spanish) so
-  // buildTokens can distribute word timings proportionally.
-  const ESTIMATED_CHARS_PER_SEC = 15;
+  // duration from its text length so buildTokens can distribute word timings
+  // proportionally.
   const initialChunkDuration =
     initialChunkIndex >= 0 && chunks[initialChunkIndex]
       ? chunks[initialChunkIndex].length / ESTIMATED_CHARS_PER_SEC
@@ -226,7 +254,10 @@ export function KaraokeText({
   }, [activeIndex, chunks.length, duration, initialChunkIndex, position, tokens]);
 
   // Auto-scroll: to the active word when playing, or to the saved chunk when idle.
+  // Disabled while the text panel is closed or still animating, so the scroll
+  // doesn't fight the panel's slide-in transition.
   useEffect(() => {
+    if (!panelStable) return;
     if (scrollPaused) return;
 
     const targetRef = activeRef.current ?? chunkRef.current;
@@ -245,7 +276,7 @@ export function KaraokeText({
       autoScrollRef.current = false;
     }, 500);
     return () => clearTimeout(t);
-  }, [activeIndex, activeChunkIndex, scrollPaused, tokens]);
+  }, [activeIndex, activeChunkIndex, panelStable, scrollPaused, tokens]);
 
   const handleScroll = useCallback(() => {
     if (autoScrollRef.current) return;
@@ -295,8 +326,17 @@ export function KaraokeText({
             className += ` ${FUTURE_CLASS}`;
           }
 
-          const handleClick = () => {
-            onSeek?.(token.start);
+          const handleClick = (
+            event: React.MouseEvent<HTMLSpanElement> | React.KeyboardEvent<HTMLSpanElement>,
+          ) => {
+            onSeek?.(token.chunkIndex, token.localOffset);
+            if (typeof event.currentTarget.scrollIntoView === "function") {
+              event.currentTarget.scrollIntoView({
+                behavior: "smooth",
+                block: "center",
+                inline: "nearest",
+              });
+            }
           };
 
           return (
@@ -307,7 +347,7 @@ export function KaraokeText({
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  handleClick();
+                  handleClick(event);
                 }
               }}
               ref={isActive ? activeRef : isFirstWordOfChunk ? chunkRef : undefined}

@@ -189,6 +189,16 @@ export class TtsClient {
   }
 
   /**
+   * Tells the worker to synthesize this chunk (and everything after it)
+   * next, ahead of any earlier chunks still waiting — used when the user
+   * jumps to a chunk that hasn't been synthesized yet, so playback doesn't
+   * have to wait for the chunks in between.
+   */
+  prioritize(targetIndex: number): void {
+    this.getWorker().postMessage({ type: "reorder", targetIndex });
+  }
+
+  /**
    * Releases this client. The underlying worker is shared across instances
    * and stays alive so its loaded model session can be reused — call
    * `cancel()` first if a synthesis is in flight and should stop.
