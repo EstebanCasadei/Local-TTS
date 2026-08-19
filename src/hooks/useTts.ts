@@ -21,6 +21,7 @@ export interface TtsState {
   voiceId: string;
   voices: typeof VOICES;
   speed: number;
+  volume: number;
   downloadProgress: number | null;
   chunksDone: number;
   chunksTotal: number;
@@ -38,6 +39,9 @@ export interface TtsState {
 export interface UseTts extends TtsState {
   setVoice: (voiceId: string) => void;
   setSpeed: (speed: number) => void;
+  setVolume: (volume: number) => void;
+  rewind: () => void;
+  forward: () => void;
   /** If preChunked is provided, uses those strings directly instead of re-splitting text. */
   synthesize: (
     text: string,
@@ -57,6 +61,7 @@ export interface UseTts extends TtsState {
 }
 
 const SPEED_STORAGE_KEY = "local-tts:speed";
+const VOLUME_STORAGE_KEY = "local-tts:volume";
 
 function loadSavedSpeed(): number {
   const saved = localStorage.getItem(SPEED_STORAGE_KEY);
@@ -65,11 +70,19 @@ function loadSavedSpeed(): number {
   return Number.isFinite(speed) && speed >= 0.5 && speed <= 3 ? speed : 1;
 }
 
+function loadSavedVolume(): number {
+  const saved = localStorage.getItem(VOLUME_STORAGE_KEY);
+  if (!saved) return 1;
+  const volume = Number.parseFloat(saved);
+  return Number.isFinite(volume) && volume >= 0 && volume <= 1 ? volume : 1;
+}
+
 const IDLE_STATE: TtsState = {
   status: "idle",
   voiceId: VOICES[0].id,
   voices: VOICES,
   speed: 1,
+  volume: 1,
   downloadProgress: null,
   chunksDone: 0,
   chunksTotal: 0,
@@ -86,12 +99,14 @@ export function useTts(): UseTts {
   const clientRef = useRef<TtsClient | null>(null);
   const queueRef = useRef<PlaybackQueue | null>(null);
   const speedRef = useRef(1);
+  const volumeRef = useRef(1);
 
-  // Initialize speed from localStorage so the user's preference persists
+  // Initialize speed/volume from localStorage so the user's preferences persist
   // across sessions.
   const [state, setState] = useState<TtsState>(() => ({
     ...IDLE_STATE,
     speed: loadSavedSpeed(),
+    volume: loadSavedVolume(),
   }));
 
   // Create the TTS client once. Its worker is shared across mounts (see
@@ -110,15 +125,18 @@ export function useTts(): UseTts {
     setState((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  // Sync speedRef so the queue callback always has the latest speed.
+  // Sync speedRef/volumeRef so the queue callback always has the latest values.
   useEffect(() => {
     speedRef.current = state.speed;
   }, [state.speed]);
+  useEffect(() => {
+    volumeRef.current = state.volume;
+  }, [state.volume]);
 
   const setVoice = useCallback((voiceId: string) => {
     queueRef.current?.stop();
     queueRef.current = null;
-    setState((prev) => ({ ...IDLE_STATE, voiceId, speed: prev.speed }));
+    setState((prev) => ({ ...IDLE_STATE, voiceId, speed: prev.speed, volume: prev.volume }));
   }, []);
 
   const setSpeed = useCallback((speed: number) => {
@@ -128,6 +146,15 @@ export function useTts(): UseTts {
     localStorage.setItem(SPEED_STORAGE_KEY, String(clamped));
     // Live speed change: re-seek to current position with the new rate.
     void queueRef.current?.setRate(clamped);
+  }, []);
+
+  const setVolume = useCallback((volume: number) => {
+    const clamped = Math.max(0, Math.min(1, volume));
+    setState((prev) => ({ ...prev, volume: clamped }));
+    // Persist to localStorage so the preference survives across sessions.
+    localStorage.setItem(VOLUME_STORAGE_KEY, String(clamped));
+    // Apply immediately if a queue is already playing.
+    queueRef.current?.setVolume(clamped);
   }, []);
 
   const synthesize = useCallback(
@@ -203,10 +230,11 @@ export function useTts(): UseTts {
           },
         });
         queue.setPlan(chunks.length);
-        // Apply the user's saved speed preference to the queue — it defaults
-        // to 1, but the user may have set a different speed before clicking play.
-        // Use speedRef (always current) instead of state.speed (stale in closure).
+        // Apply the user's saved speed/volume preferences to the queue — it
+        // defaults to 1, but the user may have changed these before clicking play.
+        // Use refs (always current) instead of state values (stale in closure).
         queue.setRate(speedRef.current);
+        queue.setVolume(volumeRef.current);
         queueRef.current = queue;
         return queue;
       };
@@ -325,6 +353,18 @@ export function useTts(): UseTts {
     queueRef.current?.seekToChunk(index, localTime);
   }, []);
 
+  const rewind = useCallback(() => {
+    const q = queueRef.current;
+    if (!q) return;
+    void q.seek(Math.max(0, q.position - 15));
+  }, []);
+
+  const forward = useCallback(() => {
+    const q = queueRef.current;
+    if (!q) return;
+    void q.seek(Math.min(q.duration, q.position + 15));
+  }, []);
+
   const cancel = useCallback(() => {
     clientRef.current?.cancel();
     queueRef.current?.stop();
@@ -346,7 +386,12 @@ export function useTts(): UseTts {
     clientRef.current?.cancel();
     queueRef.current?.stop();
     queueRef.current = null;
-    setState((prev) => ({ ...IDLE_STATE, voiceId: prev.voiceId, speed: prev.speed }));
+    setState((prev) => ({
+      ...IDLE_STATE,
+      voiceId: prev.voiceId,
+      speed: prev.speed,
+      volume: prev.volume,
+    }));
   }, []);
 
   const formatPosition = useCallback(
@@ -359,6 +404,9 @@ export function useTts(): UseTts {
     ...state,
     setVoice,
     setSpeed,
+    setVolume,
+    rewind,
+    forward,
     synthesize,
     play,
     pause,

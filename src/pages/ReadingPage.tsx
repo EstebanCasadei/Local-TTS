@@ -325,7 +325,9 @@ export function ReadingPage() {
       <PlaybackControls
         duration={formatDuration(displayDuration)}
         isPlaying={tts.status === "playing"}
+        onForward={tts.forward}
         onOpenVoices={() => setPanel("voices")}
+        onRewind={tts.rewind}
         onSpeedChange={tts.setSpeed}
         onToggle={() => {
           if (isIdle) {
@@ -336,16 +338,20 @@ export function ReadingPage() {
             tts.play();
           }
         }}
+        onVolumeChange={tts.setVolume}
         position={formatDuration(displayPosition)}
         progressPercent={displayProgressPercent}
         speed={tts.speed}
         voiceName={voiceName}
+        volume={tts.volume}
       />
 
       <VoicesPanel
         onClose={() => setPanel(null)}
+        onSelect={tts.setVoice}
         open={panel === "voices"}
         selectedId={tts.voiceId}
+        voices={tts.voices}
       />
       <AudioPanel onClose={() => setPanel(null)} open={panel === "audio"} />
     </main>

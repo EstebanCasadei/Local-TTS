@@ -1,41 +1,29 @@
 import { useState } from "react";
+import type { Voice } from "../../lib/ttsClient";
 import InfoIcon from "../../icons/InfoIcon.svg?react";
 import type { PanelItem } from "./PanelList.tsx";
 import { PanelList, PanelSectionTitle } from "./PanelList.tsx";
 import { SidePanel } from "./SidePanel.tsx";
 
-// ponytail: catálogo hardcodeado — las voces reales llegan con Piper (#10).
-// "ready" = descargada pero no activa, "download" = no descargada.
-const VOICES: PanelItem[] = [
-  {
-    id: "claudia-mx",
-    name: "Claudia - México",
-    detail: "Consumo Alto • Femenina",
-    status: "ready",
-  },
-  { id: "aldo-mx", name: "Aldo - México", detail: "Consumo Medio • Masculino", status: "download" },
-  { id: "dave-es", name: "Dave - España", detail: "Consumo Medio • Masculino", status: "download" },
-  {
-    id: "daniela-ar",
-    name: "Daniela - Argentina",
-    detail: "Consumo Alto • Femenina",
-    status: "ready",
-  },
-  { id: "carl-es", name: "Carl - España", detail: "Consumo Bajo • Masculino", status: "ready" },
-];
-
 export function VoicesPanel({
   open,
   onClose,
+  onSelect,
   selectedId,
+  voices,
 }: {
   open: boolean;
   onClose: () => void;
+  onSelect: (id: string) => void;
   selectedId: string;
+  voices: Voice[];
 }) {
-  const items = VOICES.map((voice) =>
-    voice.id === selectedId ? { ...voice, status: "selected" as const } : voice,
-  );
+  const items: PanelItem[] = voices.map((voice) => ({
+    id: voice.id,
+    name: voice.label,
+    detail: voice.accent,
+    status: voice.id === selectedId ? "selected" : "download",
+  }));
   const [tonal, setTonal] = useState(true);
 
   return (
@@ -63,8 +51,8 @@ export function VoicesPanel({
       open={open}
       title="Voces"
     >
-      <PanelSectionTitle>Recomendado para tí en Español</PanelSectionTitle>
-      <PanelList items={items} />
+      <PanelSectionTitle>Voces disponibles</PanelSectionTitle>
+      <PanelList items={items} onSelect={onSelect} />
     </SidePanel>
   );
 }
