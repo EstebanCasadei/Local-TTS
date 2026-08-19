@@ -166,25 +166,40 @@ const PARAMS = {
   grain: 0,
   fresnel: 0.476,
   spec: 0,
-  color0: "#233d70",
-  color1: "#1a4ea4",
-  color2: "#5999ff",
-  color3: "#80bfff",
-  color4: "#0c2666",
+  color0: "#2f3d61",
+  color1: "#3c5fb6",
+  color2: "#4f57ba",
+  color3: "#818cf8",
+  color4: "#2b4377",
 };
 
 function hasSmallSizeToken(className: string) {
   return /\bsize-(?:6|8)\b/.test(className);
 }
 
-export function VoiceSphere({ className = DEFAULT_CLASS }: { className?: string }) {
+type VoiceSphereProps = {
+  className?: string;
+  isPlaying?: boolean;
+  loading?: boolean;
+};
+
+export function VoiceSphere({
+  className = DEFAULT_CLASS,
+  isPlaying = false,
+  loading = false,
+}: VoiceSphereProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const isPlayingRef = useRef(isPlaying);
   const [useCanvas, setUseCanvas] = useState(() => !hasSmallSizeToken(className));
 
   useEffect(() => {
     setUseCanvas(!hasSmallSizeToken(className));
   }, [className]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
 
   useEffect(() => {
     if (!useCanvas) return;
@@ -225,8 +240,9 @@ export function VoiceSphere({ className = DEFAULT_CLASS }: { className?: string 
 
     scene.add(new THREE.Mesh(geometry, material));
 
-    const clock = new THREE.Clock();
     let rafId = 0;
+    let uTime = 0;
+    let lastFrame = 0;
 
     function resize() {
       if (!wrapper) return;
@@ -241,7 +257,15 @@ export function VoiceSphere({ className = DEFAULT_CLASS }: { className?: string 
 
     function animate() {
       rafId = requestAnimationFrame(animate);
-      material.uniforms.uTime.value = clock.getElapsedTime();
+      const now = performance.now();
+      if (lastFrame) {
+        const dt = (now - lastFrame) / 1000;
+        if (isPlayingRef.current) {
+          uTime += dt;
+        }
+      }
+      lastFrame = now;
+      material.uniforms.uTime.value = uTime;
       renderer.render(scene, camera);
     }
 
@@ -262,12 +286,10 @@ export function VoiceSphere({ className = DEFAULT_CLASS }: { className?: string 
   }
 
   return (
-    // 1. Contenedor Padre: NO tiene overflow-hidden (permite la expansión del blur)
     <div aria-hidden="true" className={`relative ${className}`} ref={wrapperRef}>
-      {/* 2. Capa de Blur: Hermano del canvas, posicionado detrás (-z-10) y expandido (scale-125) */}
       <div className="absolute inset-0 bg-bg-voicesphere blur-[32px] scale-120 rounded-full" />
+      {loading && <div className="absolute -inset-1.5 rounded-full voicesphere-loading-ring" />}
 
-      {/* 3. Contenedor del Canvas: TIENE overflow-hidden (recorta el fondo negro de Three.js) */}
       <div className="relative overflow-hidden rounded-full size-full">
         <canvas className="block size-full" ref={canvasRef} />
       </div>
