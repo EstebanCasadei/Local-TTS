@@ -211,6 +211,10 @@ export class PlaybackQueue {
       globalTime += buf.duration + (this.gaps.get(i) ?? this.gap);
     }
 
+    // Set the target chunk's start time too — the karaoke needs it to
+    // compute word timings within the active chunk.
+    this.chunkStartTimes[index] = globalTime;
+
     const targetBuffer = this.buffers.get(index);
 
     // Clamp localTime to the buffer duration — if it exceeds, the source
