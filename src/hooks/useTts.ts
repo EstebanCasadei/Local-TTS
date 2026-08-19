@@ -175,6 +175,13 @@ export function useTts(): UseTts {
       let queue: PlaybackQueue | null = null;
       let firstChunkPlayed = false;
       const decodePromises: Promise<void>[] = [];
+      // Indices whose decode+push has completed. Chunks decode asynchronously
+      // and can finish out of order, so "this chunk's index >= resumeFrom" is
+      // not enough to know every earlier chunk's buffer is actually in the
+      // queue yet — seekToChunk needs all of them to compute real chunk start
+      // times (see playbackQueue.ts's seekToChunk). Track completions
+      // explicitly and only resume once the whole 0..resumeFrom range is in.
+      const pushedIndices = new Set<number>();
 
       const ensureQueue = () => {
         if (queue) return queue;
@@ -225,30 +232,39 @@ export function useTts(): UseTts {
               const p = decodeWav(wav).then((buffer) => {
                 const q = ensureQueue();
                 q.push(index, buffer);
+                pushedIndices.add(index);
                 setState((prev) => ({
                   ...prev,
                   chunksDone: prev.chunksDone + 1,
                 }));
 
-                // Start playback when the right chunk arrives:
-                // - If resuming, wait for the resume chunk, then seekToChunk.
-                //   seekToChunk only needs the chunk index — it computes the
-                //   timeline internally from buffer durations. This is robust
-                //   even when not all chunks have arrived yet (unlike seek()
-                //   which needs the total duration to be >= the global position).
+                // Start playback once the right buffers have arrived:
+                // - If resuming, wait until every chunk from 0 through the
+                //   resume chunk has been pushed (decode order isn't
+                //   guaranteed, so this can't just check the current index),
+                //   then seekToChunk. seekToChunk needs all of those buffers
+                //   to compute real chunk start times for the karaoke.
                 // - If not resuming, play on the first chunk (streaming).
                 if (!firstChunkPlayed) {
-                  if (resumeFrom && index >= resumeFrom.chunkIndex) {
-                    firstChunkPlayed = true;
-                    // seekToChunk with offsetLocal gives word-level resume:
-                    // playback starts from the exact position within the chunk.
-                    void q.seekToChunk(resumeFrom.chunkIndex, resumeFrom.offsetLocal);
-                  } else if (!resumeFrom) {
+                  if (resumeFrom) {
+                    let allPriorPushed = true;
+                    for (let i = 0; i <= resumeFrom.chunkIndex; i++) {
+                      if (!pushedIndices.has(i)) {
+                        allPriorPushed = false;
+                        break;
+                      }
+                    }
+                    if (allPriorPushed) {
+                      firstChunkPlayed = true;
+                      // seekToChunk with offsetLocal gives word-level resume:
+                      // playback starts from the exact position within the chunk.
+                      void q.seekToChunk(resumeFrom.chunkIndex, resumeFrom.offsetLocal);
+                    }
+                    // Otherwise some earlier chunk hasn't arrived yet — wait.
+                  } else {
                     firstChunkPlayed = true;
                     void q.play();
                   }
-                  // If resumeFrom is set but we haven't reached the resume chunk,
-                  // don't play yet — wait for it to arrive.
                 }
               });
               decodePromises.push(p);
