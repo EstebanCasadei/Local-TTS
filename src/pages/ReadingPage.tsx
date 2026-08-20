@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import type { MenuItem } from "../components/library/BookMenu.tsx";
 import { BookMenu } from "../components/library";
+import { ToastProgress, useToast } from "../components";
 import {
   AudioPanel,
   KaraokeText,
@@ -14,7 +15,7 @@ import { useBook } from "../hooks/useBook.ts";
 import { useProgress } from "../hooks/useProgress.ts";
 import { useTts } from "../hooks/useTts.ts";
 import { getBookRepository } from "../lib/books";
-import { formatDuration } from "../lib/audio";
+import { ESTIMATED_CHARS_PER_SEC, formatDuration } from "../lib/audio";
 import BookmarkIcon from "../icons/BookmarkIcon.svg?react";
 import ChevronUpIcon from "../icons/ChevronUpIcon.svg?react";
 import MusicIcon from "../icons/MusicIcon.svg?react";
@@ -26,12 +27,16 @@ const HANDLE_HEIGHT = "2.25rem";
 const MENU_BUTTON =
   "grid size-10 cursor-pointer list-none place-items-center rounded-full shadow-large bg-bg-secondary text-text-primary border border-border-primary transition duration-150 hover:bg-bg-tertiary active:scale-95";
 
+/** Id fijo: reusa el mismo toast en vez de apilar uno nuevo en cada actualización de progreso. */
+const VOICE_DOWNLOAD_TOAST_ID = "voice-download";
+
 export function ReadingPage() {
   const [searchParams] = useSearchParams();
   const bookId = searchParams.get("book");
 
   const { chunks, progress, capitulos, loading } = useBook(bookId);
   const tts = useTts();
+  const { show: showToast, dismiss: dismissToast } = useToast();
   const [panel, setPanel] = useState<"voices" | "audio" | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [bookTitle, setBookTitle] = useState<string>("");
@@ -50,6 +55,32 @@ export function ReadingPage() {
         if (book) setBookTitle(book.titulo);
       });
   }, [bookId]);
+
+  // Voice model download progress lives in a toast (bottom-right) instead of
+  // an inline banner, so it keeps notifying even if the user closes the
+  // voices panel or navigates away while the model downloads in the background.
+  useEffect(() => {
+    if (tts.status !== "downloading-voice") {
+      dismissToast(VOICE_DOWNLOAD_TOAST_ID);
+      return;
+    }
+    const voiceLabel = tts.voices.find((v) => v.id === tts.downloadingVoiceId)?.label;
+    showToast(
+      <ToastProgress
+        detail={voiceLabel}
+        percent={tts.downloadProgress != null ? tts.downloadProgress * 100 : null}
+        title="Descargando voz…"
+      />,
+      { id: VOICE_DOWNLOAD_TOAST_ID, dismissible: false },
+    );
+  }, [
+    tts.status,
+    tts.downloadingVoiceId,
+    tts.downloadProgress,
+    tts.voices,
+    showToast,
+    dismissToast,
+  ]);
 
   // When the user switches voice mid-reading, re-synthesize the current
   // document with the new voice and resume from the exact same chunk/offset.
@@ -168,7 +199,6 @@ export function ReadingPage() {
   }
 
   const format = chunks[0]?.capituloId != null ? "TXT" : "TXT";
-  const estimate = `Est. ${formatDuration(chunks.length * 30)}`;
   const voiceName = tts.voices.find((v) => v.id === tts.voiceId)?.label ?? "Voz";
 
   // Show saved progress until the resume seek has actually fired and real
@@ -235,6 +265,7 @@ export function ReadingPage() {
     .reduce((sum, text) => sum + text.length, 0);
   const secondsPerChar = charsSynthesized > 0 ? tts.duration / charsSynthesized : 0;
   const estimatedTotalDuration = isFullySynthesized ? tts.duration : secondsPerChar * totalChars;
+  const estimate = `Est. ${formatDuration(estimatedTotalDuration > 0 ? estimatedTotalDuration : totalChars / ESTIMATED_CHARS_PER_SEC)}`;
 
   const displayDuration = estimatedTotalDuration > 0 ? estimatedTotalDuration : tts.duration;
   const displayProgressPercent =
@@ -320,23 +351,6 @@ export function ReadingPage() {
         </div>
       </div>
 
-      {/* TTS synthesis progress overlay */}
-      {(tts.status === "downloading-voice" ||
-        tts.status === "synthesizing" ||
-        tts.status === "buffering") && (
-        <div className="bg-bg-secondary border-t border-border-primary px-4 py-2 text-center">
-          <p className="font-p text-text-secondary">
-            {tts.status === "downloading-voice"
-              ? tts.downloadProgress != null
-                ? `Descargando voz… ${Math.round(tts.downloadProgress * 100)}%`
-                : "Conectando…"
-              : tts.status === "buffering"
-                ? `Preparando audio… ${tts.chunksDone}/${tts.chunksTotal} fragmentos`
-                : `Sintetizando… ${tts.chunksDone}/${tts.chunksTotal}`}
-          </p>
-        </div>
-      )}
-
       {/* TTS error */}
       {tts.status === "error" && (
         <div className="bg-action-error/10 border-t border-action-error px-4 py-2 text-center">
@@ -378,7 +392,6 @@ export function ReadingPage() {
       />
 
       <VoicesPanel
-        downloadProgress={tts.downloadProgress}
         downloadedIds={tts.downloadedVoiceIds}
         downloadingId={tts.downloadingVoiceId}
         onClose={() => setPanel(null)}
