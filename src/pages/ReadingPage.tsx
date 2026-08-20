@@ -245,14 +245,14 @@ export function ReadingPage() {
         : 0;
 
   return (
-    <main className="flex min-h-screen min-h-[100dvh] min-w-0 flex-1 flex-col bg-bg-tertiary">
+    <main className="flex h-[100dvh] min-w-0 flex-1 flex-col overflow-hidden bg-bg-tertiary">
       {/* Menú fijo, visible incluso cuando sube el panel de texto. */}
       <div className="fixed top-4 right-4 z-50">
         <BookMenu className={MENU_BUTTON} extraItems={menuItems} iconClassName="size-6" />
       </div>
 
       {/* Escenario: título + esfera detrás; el panel de texto sube y los tapa. */}
-      <div className="relative min-h-[26rem] flex-1 overflow-hidden">
+      <div className="relative min-h-0 md:min-h-[26rem] flex-1 overflow-hidden">
         <div className="absolute inset-0 flex flex-col p-4 pt-16 md:p-8 md:pt-8">
           <ReadingHeader title={bookTitle || "Documento"} format={format} estimate={estimate} />
           <div className="grid flex-1 place-items-center py-4">
