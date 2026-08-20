@@ -88,7 +88,7 @@ export function LibraryPage() {
   };
 
   return (
-    <main className="bg-bg-primary flex min-h-screen min-w-0 flex-1 flex-col overflow-hidden p-4 pt-16 md:p-8 md:pt-8">
+    <main className="bg-bg-primary flex min-h-screen min-h-[100dvh] min-w-0 flex-1 flex-col overflow-hidden p-4 pt-16 md:p-8 md:pt-8">
       <input
         accept={ACCEPT_ATTRIBUTE}
         className="hidden"

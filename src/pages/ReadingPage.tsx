@@ -143,7 +143,7 @@ export function ReadingPage() {
   // No book selected — show empty state
   if (!bookId) {
     return (
-      <main className="bg-bg-tertiary flex min-h-screen min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
+      <main className="bg-bg-tertiary flex min-h-screen min-h-[100dvh] min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
         <p className="font-h2 text-text-secondary">
           No se seleccionó ningún documento. Vuelve a la biblioteca para elegir uno.
         </p>
@@ -153,7 +153,7 @@ export function ReadingPage() {
 
   if (loading) {
     return (
-      <main className="bg-bg-tertiary flex min-h-screen min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
+      <main className="bg-bg-tertiary flex min-h-screen min-h-[100dvh] min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
         <p className="font-h2 text-text-secondary">Cargando documento…</p>
       </main>
     );
@@ -161,7 +161,7 @@ export function ReadingPage() {
 
   if (chunks.length === 0) {
     return (
-      <main className="bg-bg-tertiary flex min-h-screen min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
+      <main className="bg-bg-tertiary flex min-h-screen min-h-[100dvh] min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
         <p className="font-h2 text-text-secondary">Este documento no tiene contenido para leer.</p>
       </main>
     );
@@ -245,7 +245,7 @@ export function ReadingPage() {
         : 0;
 
   return (
-    <main className="flex min-h-screen min-w-0 flex-1 flex-col bg-bg-tertiary">
+    <main className="flex min-h-screen min-h-[100dvh] min-w-0 flex-1 flex-col bg-bg-tertiary">
       {/* Menú fijo, visible incluso cuando sube el panel de texto. */}
       <div className="fixed top-4 right-4 z-50">
         <BookMenu className={MENU_BUTTON} extraItems={menuItems} iconClassName="size-6" />

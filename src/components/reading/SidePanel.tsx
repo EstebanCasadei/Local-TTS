@@ -28,7 +28,7 @@ export function SidePanel({ title, open, onClose, children, footer }: SidePanelP
     <aside
       aria-hidden={!open}
       aria-label={title}
-      className={`shadow-large fixed top-2 right-0 bottom-2 z-[1000] flex h-[calc(100%-1rem)] w-full flex-col border border-r-0 border-border-primary rounded-l-2xl bg-bg-primary transition-transform duration-200 md:w-[19rem] ${
+      className={`shadow-large fixed top-2 right-0 bottom-2 z-[1000] flex h-[calc(100%-1rem)] h-[calc(100dvh-1rem)] w-full flex-col border border-r-0 border-border-primary rounded-l-2xl bg-bg-primary transition-transform duration-200 md:w-[19rem] ${
         open ? "translate-x-0" : "translate-x-full"
       }`}
       inert={!open}

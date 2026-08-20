@@ -43,7 +43,7 @@ export function TracerPage() {
         : 0;
 
   return (
-    <main className="flex min-h-screen flex-col items-center gap-6 overflow-y-auto bg-gray-950 p-4 pt-8 text-gray-100 md:justify-center">
+    <main className="flex min-h-screen min-h-[100dvh] flex-col items-center gap-6 overflow-y-auto bg-gray-950 p-4 pt-8 text-gray-100 md:justify-center">
       <header className="w-full max-w-md text-center">
         <h1 className="text-2xl font-bold">Tracer TTS</h1>
         <p className="mt-1 text-sm text-gray-400">

@@ -40,7 +40,7 @@ type KaraokeTextProps = {
   secondsPerChar?: number;
 };
 
-const WORD_CLASS = "cursor-default rounded-[2px] transition-colors duration-100";
+const WORD_CLASS = "cursor-pointer rounded-[2px] transition-colors duration-100";
 const ACTIVE_WORD_CLASS = "rounded-[4px] bg-action-primary/40 text-text-primary";
 const ACTIVE_CHUNK_CLASS = "bg-action-primary/10 text-text-primary";
 const PAST_CLASS = "text-text-secondary";
