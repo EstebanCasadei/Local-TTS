@@ -168,7 +168,7 @@ export function ReadingPage() {
   }
 
   const format = chunks[0]?.capituloId != null ? "TXT" : "TXT";
-  const estimate = `Est. ${Math.ceil(chunks.length * 0.5)} min`;
+  const estimate = `Est. ${formatDuration(chunks.length * 30)}`;
   const voiceName = tts.voices.find((v) => v.id === tts.voiceId)?.label ?? "Voz";
 
   // Show saved progress until the resume seek has actually fired and real
