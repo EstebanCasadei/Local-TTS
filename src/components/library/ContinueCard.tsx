@@ -28,7 +28,7 @@ export function ContinueCard({ book }: { book: Book }) {
           className="min-w-0 transition duration-150 hover:text-text-primary-hover"
           to={`/reading?book=${book.id}`}
         >
-          <h3 className="font-h3 font-semibold">{book.titulo}</h3>
+          <h3 className="font-h3 font-semibold truncate">{book.titulo}</h3>
           <BookMeta book={book} progress={progress} />
         </Link>
         <BookMenu />
