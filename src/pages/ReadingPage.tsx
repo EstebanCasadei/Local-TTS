@@ -327,7 +327,9 @@ export function ReadingPage() {
         <div className="bg-bg-secondary border-t border-border-primary px-4 py-2 text-center">
           <p className="font-p text-text-secondary">
             {tts.status === "downloading-voice"
-              ? `Descargando voz… ${tts.downloadProgress != null ? `${Math.round(tts.downloadProgress * 100)}%` : ""}`
+              ? tts.downloadProgress != null
+                ? `Descargando voz… ${Math.round(tts.downloadProgress * 100)}%`
+                : "Conectando…"
               : tts.status === "buffering"
                 ? `Preparando audio… ${tts.chunksDone}/${tts.chunksTotal} fragmentos`
                 : `Sintetizando… ${tts.chunksDone}/${tts.chunksTotal}`}

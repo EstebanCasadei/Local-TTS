@@ -122,6 +122,12 @@ export function useTts(): UseTts {
   const speedRef = useRef(1);
   const volumeRef = useRef(1);
   const isDownloadingVoiceRef = useRef(false);
+  // Bumped every time a new synthesize()/downloadAndSetVoice() flow starts.
+  // Async callbacks capture the value at their own start and check it before
+  // touching state — so a stale flow (e.g. a synthesize() call whose worker
+  // request got rejected by a later restartWorker()) can't clobber state
+  // set by a flow that superseded it.
+  const opRef = useRef(0);
 
   // Initialize speed/volume/downloaded-voices from localStorage so the user's
   // preferences persist across sessions.
@@ -192,6 +198,21 @@ export function useTts(): UseTts {
       if (!client || isDownloadingVoiceRef.current) return;
 
       if (voiceId === state.voiceId) return;
+
+      // Stop whatever the previous voice was doing and free its WASM memory
+      // before loading a new model — otherwise the worker's queue would
+      // process the switch only after the old voice finishes synthesizing
+      // every remaining chunk of the current document (it can take a very
+      // long time), and on low-end devices two resident ONNX models can
+      // exhaust WASM memory and break playback for every voice afterwards.
+      client.cancel();
+      client.restartWorker();
+      // Any in-flight synthesize() for the previous voice is about to have
+      // its worker request rejected by that restartWorker() call above —
+      // bump the generation so its (stale) catch handler no-ops instead of
+      // overwriting the state we're about to set for this new voice.
+      const myOp = ++opRef.current;
+
       if (state.downloadedVoiceIds.includes(voiceId)) {
         // Already downloaded — just switch the active voice and let the
         // caller re-synthesize the current document.
@@ -213,11 +234,13 @@ export function useTts(): UseTts {
 
       client
         .downloadVoice(voiceId, (p) => {
+          if (opRef.current !== myOp) return;
           update({
             downloadProgress: p.total > 0 ? p.loaded / p.total : null,
           });
         })
         .then(() => {
+          if (opRef.current !== myOp) return;
           setState((prev) => {
             const ids = Array.from(new Set([...prev.downloadedVoiceIds, voiceId]));
             localStorage.setItem(DOWNLOADED_VOICES_KEY, JSON.stringify(ids));
@@ -230,6 +253,7 @@ export function useTts(): UseTts {
           queueRef.current = null;
         })
         .catch((err) => {
+          if (opRef.current !== myOp) return;
           setState((prev) => ({
             ...prev,
             status: "error",
@@ -255,6 +279,13 @@ export function useTts(): UseTts {
     ) => {
       const client = clientRef.current;
       if (!client) return;
+
+      // Invalidates any still-pending callbacks from a previous synthesize()
+      // call (e.g. one whose worker request got rejected by a voice-switch
+      // restartWorker(), or one superseded by this newer call) so they can't
+      // clobber the state this call is about to set.
+      const myOp = ++opRef.current;
+      const stale = () => opRef.current !== myOp;
 
       // Stop any existing playback.
       queueRef.current?.stop();
@@ -305,6 +336,7 @@ export function useTts(): UseTts {
         const ctx = getAudioContext();
         queue = new PlaybackQueue(ctx, {
           onChange: (snap: PlaybackSnapshot) => {
+            if (stale()) return;
             const status = mapQueueState(snap.state);
             setState((prev) => ({
               ...prev,
@@ -333,12 +365,14 @@ export function useTts(): UseTts {
           chunks,
           {
             onVoiceProgress: (p: DownloadProgress) => {
+              if (stale()) return;
               update({
                 status: "downloading-voice",
                 downloadProgress: p.total > 0 ? p.loaded / p.total : null,
               });
             },
             onVoiceReady: () => {
+              if (stale()) return;
               // The voice is now loaded in the worker/OPFS, so mark it as
               // downloaded for the UI icons.
               setState((prev) => ({
@@ -353,6 +387,7 @@ export function useTts(): UseTts {
               // it on the AudioContext clock. If it's the first chunk, the
               // queue starts playing right away (streaming).
               const p = decodeWav(wav).then((buffer) => {
+                if (stale()) return;
                 const q = ensureQueue();
                 q.push(index, buffer);
                 setState((prev) => ({
@@ -376,6 +411,7 @@ export function useTts(): UseTts {
               decodePromises.push(p);
             },
             onChunkFailed: ({ index, message }) => {
+              if (stale()) return;
               console.warn(`[useTts] chunk ${index + 1} failed:`, message);
               queue?.markSkipped(index);
             },
@@ -383,6 +419,8 @@ export function useTts(): UseTts {
           bookId,
           chunkIds,
         );
+
+        if (stale()) return;
 
         if (result.cancelled) {
           update({ status: "idle" });
@@ -398,11 +436,13 @@ export function useTts(): UseTts {
         // the queue — otherwise the last chunk's buffer may not be pushed yet,
         // and close() would mark it as skipped (cutting off the last sentence).
         await Promise.all(decodePromises);
+        if (stale()) return;
 
         // Tell the queue no more chunks are coming.
         const q = queueRef.current as PlaybackQueue | null;
         q?.close();
       } catch (err) {
+        if (stale()) return;
         update({
           status: "error",
           error: err instanceof Error ? err.message : String(err),

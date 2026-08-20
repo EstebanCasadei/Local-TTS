@@ -132,7 +132,9 @@ export function TracerPage() {
           {tts.status === "downloading-voice" && (
             <div className="text-center">
               <p className="mb-2 text-sm text-gray-400">
-                Descargando voz… {tts.downloadProgress != null ? `${progressPercent}%` : ""}
+                {tts.downloadProgress != null
+                  ? `Descargando voz… ${progressPercent}%`
+                  : "Conectando…"}
               </p>
               {tts.downloadProgress != null && (
                 <div className="h-2 overflow-hidden rounded-full bg-gray-800">

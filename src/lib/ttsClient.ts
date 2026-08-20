@@ -65,6 +65,30 @@ function getSharedWorker(): Worker {
   return sharedWorker;
 }
 
+// Requests still waiting on a response from the shared worker, keyed by
+// request id. Used by restartSharedWorker() to fail them loudly instead of
+// leaving their promises hanging forever once the worker they were waiting
+// on is gone.
+const pendingRejects = new Map<number, (err: Error) => void>();
+
+/**
+ * Terminates the shared worker and rejects any requests still in flight
+ * against it; the next request spawns a fresh one. Reusing the same worker
+ * across a voice switch doesn't reliably free the previous model's WASM
+ * memory (onnxruntime-web/Piper phonemizer) — on low-end devices, having two
+ * ~60MB models resident at once can exhaust it and break inference for every
+ * voice until the tab is reloaded. Terminating lets the browser reclaim that
+ * memory outright.
+ */
+function restartSharedWorker(): void {
+  sharedWorker?.terminate();
+  sharedWorker = null;
+  for (const reject of pendingRejects.values()) {
+    reject(new Error("TTS worker restarted"));
+  }
+  pendingRejects.clear();
+}
+
 // Request IDs must be unique across the shared worker's whole message stream,
 // not just within one TtsClient — otherwise a new TtsClient (nextId reset to
 // 1) can reuse an ID still in flight from a previous instance's request, and
@@ -115,7 +139,13 @@ export class TtsClient {
       const cleanup = () => {
         w.removeEventListener("message", onWorkerMessage);
         w.removeEventListener("error", onWorkerError);
+        pendingRejects.delete(id);
       };
+
+      pendingRejects.set(id, (err) => {
+        cleanup();
+        reject(err);
+      });
 
       w.addEventListener("message", onWorkerMessage);
       w.addEventListener("error", onWorkerError);
@@ -186,6 +216,16 @@ export class TtsClient {
   /** Tells the worker to stop after the current chunk. */
   cancel(): void {
     this.getWorker().postMessage({ type: "cancel" });
+  }
+
+  /**
+   * Terminates and respawns the shared worker so a previous voice's WASM
+   * memory is fully released before loading a new one. Call `cancel()`
+   * first if a synthesis is in flight — this rejects it immediately rather
+   * than waiting for it to wind down.
+   */
+  restartWorker(): void {
+    restartSharedWorker();
   }
 
   /**

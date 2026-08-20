@@ -64,7 +64,7 @@ export function VoicesPanel({
     >
       {downloadingId && (
         <p className="font-label mb-2 text-text-secondary">
-          Descargando voz{progressText ? `… ${progressText}` : "…"}
+          {progressText ? `Descargando voz… ${progressText}` : "Conectando…"}
         </p>
       )}
       <PanelSectionTitle>Voces disponibles</PanelSectionTitle>
