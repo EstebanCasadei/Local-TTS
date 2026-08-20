@@ -1,8 +1,15 @@
+function truncateText(text: string, maxLength = 50): string {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}…`;
+}
 type ReadingHeaderProps = {
   title: string;
   format: string;
   estimate: string;
   chapter?: string;
+  chapters?: { indice: number; titulo: string }[];
+  activeChapter?: number | null;
+  onSelectChapter?: (indice: number) => void;
   showChapter?: boolean;
 };
 
@@ -11,6 +18,9 @@ export function ReadingHeader({
   format,
   estimate,
   chapter,
+  chapters = [],
+  activeChapter,
+  onSelectChapter,
   showChapter = false,
 }: ReadingHeaderProps) {
   return (
@@ -22,14 +32,29 @@ export function ReadingHeader({
             {format} • {estimate}
           </span>
           {chapter && (
-            <label className="flex cursor-pointer items-center gap-1">
+            <label className="flex min-w-0 cursor-pointer items-center gap-1">
               <span className="font-medium text-text-primary">Capítulo:</span>
-              <select
-                aria-label="Capítulo"
-                className="cursor-pointer rounded-[8px] pr-1 text-text-secondary"
-              >
-                <option>{chapter}</option>
-              </select>
+              {chapters.length > 1 ? (
+                <select
+                  aria-label="Capítulo"
+                  className="max-w-[60vw] cursor-pointer truncate rounded-[8px] pr-1 text-text-secondary md:max-w-80"
+                  onChange={(event) => onSelectChapter?.(Number(event.target.value))}
+                  value={activeChapter ?? chapters[0]?.indice}
+                >
+                  {chapters.map((ch) => (
+                    <option key={ch.indice} title={ch.titulo} value={ch.indice}>
+                      {truncateText(ch.titulo)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  aria-label="Capítulo"
+                  className="max-w-[60vw] cursor-pointer truncate rounded-[8px] pr-1 text-text-secondary md:max-w-80"
+                >
+                  <option title={chapter}>{truncateText(chapter)}</option>
+                </select>
+              )}
             </label>
           )}
         </div>
