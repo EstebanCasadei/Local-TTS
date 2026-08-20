@@ -288,9 +288,15 @@ export function ReadingPage() {
           >
             <div className="mx-auto flex min-h-0 w-full max-w-[1100px] flex-1 flex-col">
               <ReadingHeader
+                activeChapter={currentCapituloId}
                 chapter={chapterTitle}
+                chapters={capitulos}
                 estimate={estimate}
                 format={format}
+                onSelectChapter={(indice) => {
+                  const chunkIndex = chunks.findIndex((c) => c.capituloId === indice);
+                  if (chunkIndex >= 0) tts.seekToChunk(chunkIndex);
+                }}
                 showChapter={expanded}
                 title={bookTitle || "Documento"}
               />
