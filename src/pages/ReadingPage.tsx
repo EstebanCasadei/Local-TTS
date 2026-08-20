@@ -11,6 +11,7 @@ import {
   VoiceSphere,
   VoicesPanel,
 } from "../components/reading";
+import { useAmbientAudio } from "../hooks/useAmbientAudio.ts";
 import { useBook } from "../hooks/useBook.ts";
 import { useProgress } from "../hooks/useProgress.ts";
 import { useTts } from "../hooks/useTts.ts";
@@ -36,10 +37,12 @@ export function ReadingPage() {
 
   const { chunks, progress, capitulos, loading } = useBook(bookId);
   const tts = useTts();
+  const ambient = useAmbientAudio();
   const { show: showToast, dismiss: dismissToast } = useToast();
   const [panel, setPanel] = useState<"voices" | "audio" | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [bookTitle, setBookTitle] = useState<string>("");
+  const [bookFormat, setBookFormat] = useState<string>("");
   const progressRef = useRef(progress);
   const lastVoiceIdRef = useRef<string | null>(null);
 
@@ -52,7 +55,9 @@ export function ReadingPage() {
     getBookRepository()
       .getBook(bookId)
       .then((book) => {
-        if (book) setBookTitle(book.titulo);
+        if (!book) return;
+        setBookTitle(book.titulo);
+        setBookFormat(book.formatoOriginal.toUpperCase());
       });
   }, [bookId]);
 
@@ -167,6 +172,7 @@ export function ReadingPage() {
       label: "Música/sonido ambiente",
       icon: MusicIcon,
       onSelect: () => setPanel("audio"),
+      badge: ambient.isPlaying,
     },
     { label: "Programar descanso", icon: SleepIcon },
   ];
@@ -198,7 +204,7 @@ export function ReadingPage() {
     );
   }
 
-  const format = chunks[0]?.capituloId != null ? "TXT" : "TXT";
+  const format = bookFormat || "TXT";
   const voiceName = tts.voices.find((v) => v.id === tts.voiceId)?.label ?? "Voz";
 
   // Show saved progress until the resume seek has actually fired and real
@@ -400,7 +406,7 @@ export function ReadingPage() {
         selectedId={tts.voiceId}
         voices={tts.voices}
       />
-      <AudioPanel onClose={() => setPanel(null)} open={panel === "audio"} />
+      <AudioPanel ambient={ambient} onClose={() => setPanel(null)} open={panel === "audio"} />
     </main>
   );
 }

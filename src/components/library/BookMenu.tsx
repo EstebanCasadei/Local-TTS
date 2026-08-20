@@ -10,7 +10,19 @@ export type MenuItem = {
   icon: FunctionComponent<SVGProps<SVGSVGElement>>;
   onSelect?: () => void;
   hoverClass?: string;
+  /** Small brand dot next to the row — e.g. "algo sigue activo en segundo plano". */
+  badge?: boolean;
 };
+
+/** Small brand-colored notification dot, positioned by the parent. */
+function Badge({ className = "" }: { className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`absolute size-2.5 rounded-full bg-brand-primary ${className}`}
+    />
+  );
+}
 
 const DOCUMENT_ITEMS: MenuItem[] = [
   { label: "Subir a la nube", icon: CloudUpIcon },
@@ -51,9 +63,12 @@ export function BookMenu({
     if (ref.current) ref.current.open = false;
   };
 
+  const hasBadge = extraItems?.some((item) => item.badge) ?? false;
+
   return (
-    <details className="relative shrink-0" ref={ref}>
-      <summary className={className}>
+    <details className="shrink-0" ref={ref}>
+      <summary className={`relative ${className}`}>
+        {hasBadge && <Badge className="-top-1 -left-1 z-10" />}
         <DotsIcon className={iconClassName} />
         <span className="sr-only">Acciones del documento</span>
       </summary>
@@ -73,7 +88,7 @@ export function BookMenu({
 }
 
 function MenuRow({ item, onSelected }: { item: MenuItem; onSelected: () => void }) {
-  const { label, icon: Icon, onSelect, hoverClass = "hover:bg-bg-tertiary" } = item;
+  const { label, icon: Icon, onSelect, hoverClass = "hover:bg-bg-tertiary", badge } = item;
   return (
     <li>
       {/* TODO: los items sin onSelect no tienen acción todavía. */}
@@ -85,7 +100,10 @@ function MenuRow({ item, onSelected }: { item: MenuItem; onSelected: () => void 
         }}
         type="button"
       >
-        <Icon className="size-4 shrink-0" />
+        <span className="relative shrink-0">
+          <Icon className="size-4 shrink-0" />
+          {badge && <Badge className="-top-0.5 -left-0.5" />}
+        </span>
         {label}
       </button>
     </li>
