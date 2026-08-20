@@ -22,6 +22,10 @@ export interface TtsState {
   voices: typeof VOICES;
   speed: number;
   volume: number;
+  /** IDs of voices already downloaded in this session (or previous ones). */
+  downloadedVoiceIds: string[];
+  /** Voice currently being downloaded, if any. */
+  downloadingVoiceId: string | null;
   downloadProgress: number | null;
   chunksDone: number;
   chunksTotal: number;
@@ -42,6 +46,7 @@ export interface UseTts extends TtsState {
   setVolume: (volume: number) => void;
   rewind: () => void;
   forward: () => void;
+  downloadAndSetVoice: (voiceId: string) => void;
   /** If preChunked is provided, uses those strings directly instead of re-splitting text. */
   synthesize: (
     text: string,
@@ -62,6 +67,7 @@ export interface UseTts extends TtsState {
 
 const SPEED_STORAGE_KEY = "local-tts:speed";
 const VOLUME_STORAGE_KEY = "local-tts:volume";
+const DOWNLOADED_VOICES_KEY = "local-tts:downloaded-voices";
 
 function loadSavedSpeed(): number {
   const saved = localStorage.getItem(SPEED_STORAGE_KEY);
@@ -77,12 +83,27 @@ function loadSavedVolume(): number {
   return Number.isFinite(volume) && volume >= 0 && volume <= 1 ? volume : 1;
 }
 
+function loadDownloadedVoiceIds(): string[] {
+  try {
+    const saved = localStorage.getItem(DOWNLOADED_VOICES_KEY);
+    const parsed = saved ? (JSON.parse(saved) as unknown) : null;
+    if (Array.isArray(parsed) && parsed.every((id) => typeof id === "string")) {
+      return parsed;
+    }
+  } catch {
+    // ignore malformed localStorage
+  }
+  return [];
+}
+
 const IDLE_STATE: TtsState = {
   status: "idle",
   voiceId: VOICES[0].id,
   voices: VOICES,
   speed: 1,
   volume: 1,
+  downloadedVoiceIds: [],
+  downloadingVoiceId: null,
   downloadProgress: null,
   chunksDone: 0,
   chunksTotal: 0,
@@ -100,13 +121,15 @@ export function useTts(): UseTts {
   const queueRef = useRef<PlaybackQueue | null>(null);
   const speedRef = useRef(1);
   const volumeRef = useRef(1);
+  const isDownloadingVoiceRef = useRef(false);
 
-  // Initialize speed/volume from localStorage so the user's preferences persist
-  // across sessions.
+  // Initialize speed/volume/downloaded-voices from localStorage so the user's
+  // preferences persist across sessions.
   const [state, setState] = useState<TtsState>(() => ({
     ...IDLE_STATE,
     speed: loadSavedSpeed(),
     volume: loadSavedVolume(),
+    downloadedVoiceIds: loadDownloadedVoiceIds(),
   }));
 
   // Create the TTS client once. Its worker is shared across mounts (see
@@ -136,7 +159,13 @@ export function useTts(): UseTts {
   const setVoice = useCallback((voiceId: string) => {
     queueRef.current?.stop();
     queueRef.current = null;
-    setState((prev) => ({ ...IDLE_STATE, voiceId, speed: prev.speed, volume: prev.volume }));
+    setState((prev) => ({
+      ...IDLE_STATE,
+      voiceId,
+      speed: prev.speed,
+      volume: prev.volume,
+      downloadedVoiceIds: prev.downloadedVoiceIds,
+    }));
   }, []);
 
   const setSpeed = useCallback((speed: number) => {
@@ -156,6 +185,65 @@ export function useTts(): UseTts {
     // Apply immediately if a queue is already playing.
     queueRef.current?.setVolume(clamped);
   }, []);
+
+  const downloadAndSetVoice = useCallback(
+    (voiceId: string) => {
+      const client = clientRef.current;
+      if (!client || isDownloadingVoiceRef.current) return;
+
+      if (voiceId === state.voiceId) return;
+      if (state.downloadedVoiceIds.includes(voiceId)) {
+        // Already downloaded — just switch the active voice and let the
+        // caller re-synthesize the current document.
+        queueRef.current?.stop();
+        queueRef.current = null;
+        setState((prev) => ({ ...prev, voiceId }));
+        return;
+      }
+
+      isDownloadingVoiceRef.current = true;
+      // Pause playback while the new model downloads.
+      void queueRef.current?.pause();
+      setState((prev) => ({
+        ...prev,
+        status: "downloading-voice",
+        downloadingVoiceId: voiceId,
+        downloadProgress: null,
+      }));
+
+      client
+        .downloadVoice(voiceId, (p) => {
+          update({
+            downloadProgress: p.total > 0 ? p.loaded / p.total : null,
+          });
+        })
+        .then(() => {
+          setState((prev) => {
+            const ids = Array.from(new Set([...prev.downloadedVoiceIds, voiceId]));
+            localStorage.setItem(DOWNLOADED_VOICES_KEY, JSON.stringify(ids));
+            // Switch voice without resetting chunk state — the reading page
+            // will re-synthesize the current document and resume from where
+            // the user left off.
+            return { ...prev, voiceId, downloadedVoiceIds: ids, status: "idle" };
+          });
+          queueRef.current?.stop();
+          queueRef.current = null;
+        })
+        .catch((err) => {
+          setState((prev) => ({
+            ...prev,
+            status: "error",
+            error: err instanceof Error ? err.message : String(err),
+            downloadingVoiceId: null,
+            downloadProgress: null,
+          }));
+        })
+        .finally(() => {
+          isDownloadingVoiceRef.current = false;
+        });
+    },
+    [state.downloadedVoiceIds, state.voiceId, update],
+  );
 
   const synthesize = useCallback(
     async (
@@ -194,6 +282,13 @@ export function useTts(): UseTts {
         activeChunkIndex: 0,
       });
 
+      // If resuming mid-document, tell the worker to synthesize the target
+      // chunk first. Playback will start as soon as that chunk arrives, while
+      // earlier chunks are re-synthesized in the background.
+      if (resumeFrom) {
+        client.prioritize(resumeFrom.chunkIndex);
+      }
+
       // The queue is created lazily after the first chunk decodes, because
       // decodeWav() may close and recreate the AudioContext at a different
       // sample rate (Piper outputs 16kHz or 22.05kHz depending on the voice).
@@ -202,13 +297,6 @@ export function useTts(): UseTts {
       let queue: PlaybackQueue | null = null;
       let firstChunkPlayed = false;
       const decodePromises: Promise<void>[] = [];
-      // Indices whose decode+push has completed. Chunks decode asynchronously
-      // and can finish out of order, so "this chunk's index >= resumeFrom" is
-      // not enough to know every earlier chunk's buffer is actually in the
-      // queue yet — seekToChunk needs all of them to compute real chunk start
-      // times (see playbackQueue.ts's seekToChunk). Track completions
-      // explicitly and only resume once the whole 0..resumeFrom range is in.
-      const pushedIndices = new Set<number>();
 
       const ensureQueue = () => {
         if (queue) return queue;
@@ -251,7 +339,14 @@ export function useTts(): UseTts {
               });
             },
             onVoiceReady: () => {
-              update({ status: "synthesizing", downloadProgress: null });
+              // The voice is now loaded in the worker/OPFS, so mark it as
+              // downloaded for the UI icons.
+              setState((prev) => ({
+                ...prev,
+                status: "synthesizing",
+                downloadProgress: null,
+                downloadedVoiceIds: Array.from(new Set([...prev.downloadedVoiceIds, prev.voiceId])),
+              }));
             },
             onChunk: ({ wav, index }) => {
               // Decode and push to the queue immediately — the queue schedules
@@ -260,36 +355,19 @@ export function useTts(): UseTts {
               const p = decodeWav(wav).then((buffer) => {
                 const q = ensureQueue();
                 q.push(index, buffer);
-                pushedIndices.add(index);
                 setState((prev) => ({
                   ...prev,
                   chunksDone: prev.chunksDone + 1,
                 }));
 
-                // Start playback once the right buffers have arrived:
-                // - If resuming, wait until every chunk from 0 through the
-                //   resume chunk has been pushed (decode order isn't
-                //   guaranteed, so this can't just check the current index),
-                //   then seekToChunk. seekToChunk needs all of those buffers
-                //   to compute real chunk start times for the karaoke.
-                // - If not resuming, play on the first chunk (streaming).
+                // Start playback as soon as the first usable chunk arrives:
+                // - If resuming, start from the resume chunk/offset.
+                // - Otherwise, play from the first chunk (streaming).
                 if (!firstChunkPlayed) {
-                  if (resumeFrom) {
-                    let allPriorPushed = true;
-                    for (let i = 0; i <= resumeFrom.chunkIndex; i++) {
-                      if (!pushedIndices.has(i)) {
-                        allPriorPushed = false;
-                        break;
-                      }
-                    }
-                    if (allPriorPushed) {
-                      firstChunkPlayed = true;
-                      // seekToChunk with offsetLocal gives word-level resume:
-                      // playback starts from the exact position within the chunk.
-                      void q.seekToChunk(resumeFrom.chunkIndex, resumeFrom.offsetLocal);
-                    }
-                    // Otherwise some earlier chunk hasn't arrived yet — wait.
-                  } else {
+                  if (resumeFrom && index === resumeFrom.chunkIndex) {
+                    firstChunkPlayed = true;
+                    void q.seekToChunk(resumeFrom.chunkIndex, resumeFrom.offsetLocal);
+                  } else if (!resumeFrom) {
                     firstChunkPlayed = true;
                     void q.play();
                   }
@@ -391,6 +469,7 @@ export function useTts(): UseTts {
       voiceId: prev.voiceId,
       speed: prev.speed,
       volume: prev.volume,
+      downloadedVoiceIds: prev.downloadedVoiceIds,
     }));
   }, []);
 
@@ -407,6 +486,7 @@ export function useTts(): UseTts {
     setVolume,
     rewind,
     forward,
+    downloadAndSetVoice,
     synthesize,
     play,
     pause,

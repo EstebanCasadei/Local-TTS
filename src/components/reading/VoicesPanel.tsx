@@ -11,20 +11,31 @@ export function VoicesPanel({
   onSelect,
   selectedId,
   voices,
+  downloadedIds,
+  downloadingId,
+  downloadProgress,
 }: {
   open: boolean;
   onClose: () => void;
   onSelect: (id: string) => void;
   selectedId: string;
   voices: Voice[];
+  downloadedIds: string[];
+  downloadingId: string | null;
+  downloadProgress: number | null;
 }) {
-  const items: PanelItem[] = voices.map((voice) => ({
-    id: voice.id,
-    name: voice.label,
-    detail: voice.accent,
-    status: voice.id === selectedId ? "selected" : "download",
-  }));
+  const items: PanelItem[] = voices.map((voice) => {
+    if (voice.id === selectedId)
+      return { id: voice.id, name: voice.label, detail: voice.accent, status: "selected" as const };
+    if (downloadedIds.includes(voice.id)) {
+      return { id: voice.id, name: voice.label, detail: voice.accent, status: "ready" as const };
+    }
+    return { id: voice.id, name: voice.label, detail: voice.accent, status: "download" as const };
+  });
   const [tonal, setTonal] = useState(true);
+
+  const progressText =
+    downloadingId && downloadProgress != null ? `${Math.round(downloadProgress * 100)}%` : null;
 
   return (
     <SidePanel
@@ -51,8 +62,13 @@ export function VoicesPanel({
       open={open}
       title="Voces"
     >
+      {downloadingId && (
+        <p className="font-label mb-2 text-text-secondary">
+          Descargando voz{progressText ? `… ${progressText}` : "…"}
+        </p>
+      )}
       <PanelSectionTitle>Voces disponibles</PanelSectionTitle>
-      <PanelList items={items} onSelect={onSelect} />
+      <PanelList items={items} onSelect={downloadingId ? undefined : onSelect} />
     </SidePanel>
   );
 }

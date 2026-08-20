@@ -136,9 +136,9 @@ async function handleSynthesize(
   // Chunks that have cached audio with a matching hash are loaded from disk
   // instead of running Piper — instant replay on subsequent listens.
   const useCache = bookId && chunkIds && chunkIds.length === chunks.length;
-  const cachedAudio = useCache ? await audioLocal(bookId!) : new Map<string, string>();
+  const cachedAudio = useCache ? await audioLocal(bookId!, voiceId) : new Map<string, string>();
   const hashes: (string | null)[] = useCache
-    ? await Promise.all(chunks.map((text) => textHash(text)))
+    ? await Promise.all(chunks.map((text) => textHash(text, voiceId)))
     : chunks.map(() => null);
 
   // Determine which chunks need synthesis vs. are cached.
@@ -149,7 +149,7 @@ async function handleSynthesize(
     const chunkId = chunkIds?.[i];
     if (useCache && hash && chunkId && cachedAudio.get(chunkId) === hash) {
       // Cache hit — load from OPFS, no Piper inference needed.
-      const wav = await readChunk(bookId!, chunkId, hash);
+      const wav = await readChunk(bookId!, chunkId, hash, voiceId);
       if (wav) {
         post({ type: "chunk-done", id, index: i, total: chunks.length, wav, cached: true }, [wav]);
         continue;
@@ -189,7 +189,7 @@ async function handleSynthesize(
 
         // Save to OPFS cache if we have a bookId + chunkId + hash.
         if (useCache && hashes[index] && chunkIds?.[index]) {
-          await saveChunk(bookId!, chunkIds[index], hashes[index]!, wav).catch((err) => {
+          await saveChunk(bookId!, chunkIds[index], hashes[index]!, wav, voiceId).catch((err) => {
             console.warn(`[tts-worker] failed to cache chunk ${index + 1}:`, err);
           });
         }

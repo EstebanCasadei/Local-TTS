@@ -19,21 +19,40 @@
 
 const FILENAME_RE = /^(.+)\.([0-9a-f]{8})\.wav$/;
 
-/** First 4 bytes of SHA-256 of text, as 8-char hex. */
-export async function textHash(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+/** First 4 bytes of SHA-256 of `voiceId + "|" + text`, as 8-char hex.
+ *  Including the voice in the hash keeps one cached WAV per (voice, text) pair
+ *  so switching voices re-synthesizes with the new model instead of replaying
+ *  the old one.
+ */
+export async function textHash(text: string, voiceId = ""): Promise<string> {
+  const source = voiceId ? `${voiceId}|${text}` : text;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source));
   return Array.from(new Uint8Array(digest, 0, 4), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** Builds the cache filename: `{chunkId}.{hash}.wav`. */
-export function fileName(chunkId: string, hash: string): string {
+/** Builds the cache filename: `{chunkId}.{voiceId}.{hash}.wav` when voiceId is
+ *  provided, otherwise falls back to the legacy `{chunkId}.{hash}.wav` format.
+ */
+export function fileName(chunkId: string, hash: string, voiceId?: string): string {
+  if (voiceId) return `${chunkId}.${voiceId}.${hash}.wav`;
   return `${chunkId}.${hash}.wav`;
 }
 
-/** Parses a cache filename into { chunkId, hash }, or null if not a valid name. */
-export function parseFileName(name: string): { chunkId: string; hash: string } | null {
-  const m = FILENAME_RE.exec(name);
-  return m ? { chunkId: m[1], hash: m[2] } : null;
+/** Parses a cache filename into { chunkId, voiceId?, hash }, or null if not
+ *  a valid name. Accepts both the legacy two-part format and the new
+ *  voice-aware three-part format.
+ */
+export function parseFileName(
+  name: string,
+): { chunkId: string; voiceId?: string; hash: string } | null {
+  // New voice-aware format: chunkId.voiceId.hash.wav
+  const voiced = /^(.+)\.([^.]+)\.([0-9a-f]{8})\.wav$/.exec(name);
+  if (voiced) {
+    return { chunkId: voiced[1], voiceId: voiced[2], hash: voiced[3] };
+  }
+  // Legacy two-part format: chunkId.hash.wav
+  const legacy = FILENAME_RE.exec(name);
+  return legacy ? { chunkId: legacy[1], hash: legacy[2] } : null;
 }
 
 // --- OPFS directory handling ---
@@ -65,16 +84,20 @@ async function getBookDir(
 // --- Public API ---
 
 /**
- * Local audio cache for a book: Map<chunkId, hash>. A single directory listing
- * answers all cache questions. Returns empty Map if the book has no cached audio.
+ * Local audio cache for a book and voice: Map<chunkId, hash>. A single
+ * directory listing answers all cache questions. Returns empty Map if the book
+ * has no cached audio for the given voice. Legacy files without a voiceId are
+ * ignored because they were keyed by text only.
  */
-export async function audioLocal(bookId: string): Promise<Map<string, string>> {
+export async function audioLocal(bookId: string, voiceId: string): Promise<Map<string, string>> {
   const map = new Map<string, string>();
   const dir = await getBookDir(bookId, false);
   if (!dir) return map;
   for await (const name of dir.keys()) {
     const parsed = parseFileName(name);
-    if (parsed) map.set(parsed.chunkId, parsed.hash);
+    if (parsed && parsed.voiceId === voiceId) {
+      map.set(parsed.chunkId, parsed.hash);
+    }
   }
   return map;
 }
@@ -87,11 +110,12 @@ export async function readChunk(
   bookId: string,
   chunkId: string,
   hash: string,
+  voiceId: string,
 ): Promise<ArrayBuffer | null> {
   const dir = await getBookDir(bookId, false);
   if (!dir) return null;
   try {
-    const handle = await dir.getFileHandle(fileName(chunkId, hash));
+    const handle = await dir.getFileHandle(fileName(chunkId, hash, voiceId));
     return await (await handle.getFile()).arrayBuffer();
   } catch (err) {
     if (err instanceof Error && err.name === "NotFoundError") return null;
@@ -101,7 +125,8 @@ export async function readChunk(
 
 /**
  * Saves a WAV from the worker using a Sync Access Handle. Also cleans up stale
- * versions of the same chunk (old hash → orphaned file wasting quota).
+ * versions of the same chunk for the same voice (old hash → orphaned file).
+ * Files for other voices are left intact.
  *
  * Must run inside a Worker — createSyncAccessHandle is worker-only.
  */
@@ -110,10 +135,11 @@ export async function saveChunk(
   chunkId: string,
   hash: string,
   wav: ArrayBuffer,
+  voiceId: string,
 ): Promise<void> {
   const dir = await getBookDir(bookId, true);
   if (!dir) throw new Error(`Could not create OPFS directory for book ${bookId}`);
-  const name = fileName(chunkId, hash);
+  const name = fileName(chunkId, hash, voiceId);
   const handle = await dir.getFileHandle(name, { create: true });
   // createSyncAccessHandle is worker-only — not in the DOM lib types.
   const access = await (
@@ -134,10 +160,10 @@ export async function saveChunk(
     access.close();
   }
 
-  // Delete stale versions of this chunk (different hash).
+  // Delete stale versions of this chunk for the same voice (different hash).
   for await (const existing of dir.keys()) {
     const parsed = parseFileName(existing);
-    if (parsed && parsed.chunkId === chunkId && existing !== name) {
+    if (parsed && parsed.chunkId === chunkId && parsed.voiceId === voiceId && existing !== name) {
       await dir.removeEntry(existing).catch(() => {});
     }
   }
