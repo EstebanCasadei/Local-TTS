@@ -54,50 +54,73 @@ async function isCached(dir: FileSystemDirectoryHandle, name: string): Promise<b
   }
 }
 
+// Chromium's OPFS throws this when a handle/entry it cached in memory no
+// longer matches what's on disk — e.g. a previous download left an orphaned
+// write lock because the worker was terminated mid-write (see
+// TtsClient.restartWorker(), called when the user switches voices while one
+// is still downloading). Surfaces as: "An operation that depends on state
+// cached in an interface object was made but the state had changed since it
+// was read from disk."
+function isStaleOpfsState(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "InvalidStateError";
+}
+
 /**
  * Streams `url` straight into an OPFS file (no full-response buffering),
  * reporting incremental progress. Falls back to `fallbackTotal` for the
  * progress denominator when the response has no Content-Length. Aborts (and
  * removes the partial file) after DOWNLOAD_TIMEOUT_MS.
+ *
+ * Retries once, after wiping the entry, if OPFS reports the file's on-disk
+ * state no longer matches what a handle had cached (see isStaleOpfsState) —
+ * otherwise that stale entry would keep failing every attempt until the user
+ * manually clears site data.
  */
 async function streamToOpfs(
   dir: FileSystemDirectoryHandle,
   url: string,
   fallbackTotal: number | undefined,
   onProgress?: (p: VoiceDownloadProgress) => void,
+  retryOnStaleState = true,
 ): Promise<void> {
   const name = fileNameFor(url);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
 
-  const handle = await dir.getFileHandle(name, { create: true });
-  const writable = await handle.createWritable();
   try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok || !res.body) {
-      throw new Error(`No se pudo descargar ${name} (HTTP ${res.status})`);
+    let writable: FileSystemWritableFileStream | undefined;
+    try {
+      const handle = await dir.getFileHandle(name, { create: true });
+      writable = await handle.createWritable();
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok || !res.body) {
+        throw new Error(`No se pudo descargar ${name} (HTTP ${res.status})`);
+      }
+      const contentLength = +(res.headers.get("Content-Length") ?? 0);
+      const total = contentLength > 0 ? contentLength : (fallbackTotal ?? 0);
+      let loaded = 0;
+      const reader = res.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        await writable.write(value);
+        loaded += value.length;
+        onProgress?.({ loaded, total });
+      }
+      await writable.close();
+    } catch (err) {
+      await writable?.abort().catch(() => {});
+      await dir.removeEntry(name).catch(() => {});
+      if (controller.signal.aborted) {
+        throw new Error(
+          `La descarga de ${name} tardó demasiado (más de ${DOWNLOAD_TIMEOUT_MS / 1000}s) y fue cancelada.`,
+        );
+      }
+      if (retryOnStaleState && isStaleOpfsState(err)) {
+        return await streamToOpfs(dir, url, fallbackTotal, onProgress, false);
+      }
+      throw err;
     }
-    const contentLength = +(res.headers.get("Content-Length") ?? 0);
-    const total = contentLength > 0 ? contentLength : (fallbackTotal ?? 0);
-    let loaded = 0;
-    const reader = res.body.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      await writable.write(value);
-      loaded += value.length;
-      onProgress?.({ loaded, total });
-    }
-    await writable.close();
-  } catch (err) {
-    await writable.abort().catch(() => {});
-    await dir.removeEntry(name).catch(() => {});
-    if (controller.signal.aborted) {
-      throw new Error(
-        `La descarga de ${name} tardó demasiado (más de ${DOWNLOAD_TIMEOUT_MS / 1000}s) y fue cancelada.`,
-      );
-    }
-    throw err;
   } finally {
     clearTimeout(timeout);
   }
