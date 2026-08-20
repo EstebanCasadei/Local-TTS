@@ -5,12 +5,13 @@ import PauseIcon from "../../icons/PauseIcon.svg?react";
 import PlayIcon from "../../icons/PlayIcon.svg?react";
 import RewindIcon from "../../icons/RewindIcon.svg?react";
 import VolumeIcon from "../../icons/VolumeIcon.svg?react";
-import { VoiceSphere } from "./VoiceSphere.tsx";
+import { DEFAULT_VOICE_ICON, voiceIconSrc } from "../../lib/voiceIcons.ts";
 
 // ponytail: progreso maquetado — los tiempos reales llegan con el audio (#6).
 type PlaybackControlsProps = {
   isPlaying: boolean;
   speed: number;
+  voiceId: string;
   voiceName: string;
   position?: string;
   duration?: string;
@@ -27,6 +28,7 @@ type PlaybackControlsProps = {
 export function PlaybackControls({
   isPlaying,
   speed,
+  voiceId,
   voiceName,
   position = "00:00",
   duration = "00:00",
@@ -92,7 +94,15 @@ export function PlaybackControls({
             onClick={onOpenVoices}
             type="button"
           >
-            <VoiceSphere className="size-6" />
+            <img
+              alt=""
+              className="size-6 shrink-0 rounded-full bg-bg-tertiary object-cover"
+              onError={(event) => {
+                event.currentTarget.onerror = null;
+                event.currentTarget.src = DEFAULT_VOICE_ICON;
+              }}
+              src={voiceIconSrc(voiceId)}
+            />
             {voiceName}
           </button>
         </div>

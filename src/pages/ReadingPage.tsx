@@ -372,6 +372,7 @@ export function ReadingPage() {
         position={formatDuration(displayPosition)}
         progressPercent={displayProgressPercent}
         speed={tts.speed}
+        voiceId={tts.voiceId}
         voiceName={voiceName}
         volume={tts.volume}
       />

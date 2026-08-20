@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
 const DEFAULT_CLASS = "size-64 md:size-80";
@@ -173,16 +173,11 @@ const PARAMS = {
   color4: "#2b4377",
 };
 
-function hasSmallSizeToken(className: string) {
-  return /\bsize-(?:6|8)\b/.test(className);
-}
-
 type VoiceSphereProps = {
   className?: string;
   isPlaying?: boolean;
   loading?: boolean;
 };
-
 export function VoiceSphere({
   className = DEFAULT_CLASS,
   isPlaying = false,
@@ -191,19 +186,12 @@ export function VoiceSphere({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isPlayingRef = useRef(isPlaying);
-  const [useCanvas, setUseCanvas] = useState(() => !hasSmallSizeToken(className));
-
-  useEffect(() => {
-    setUseCanvas(!hasSmallSizeToken(className));
-  }, [className]);
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
   useEffect(() => {
-    if (!useCanvas) return;
-
     const canvas = canvasRef.current;
     const wrapper = wrapperRef.current;
     if (!canvas || !wrapper) return;
@@ -279,11 +267,7 @@ export function VoiceSphere({
       material.dispose();
       renderer.dispose();
     };
-  }, [useCanvas]);
-
-  if (!useCanvas) {
-    return <div aria-hidden="true" className={`sphere shrink-0 rounded-full ${className}`} />;
-  }
+  }, []);
 
   return (
     <div aria-hidden="true" className={`relative ${className}`} ref={wrapperRef}>
