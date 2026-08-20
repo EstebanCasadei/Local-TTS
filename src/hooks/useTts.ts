@@ -68,6 +68,12 @@ export interface UseTts extends TtsState {
 const SPEED_STORAGE_KEY = "local-tts:speed";
 const VOLUME_STORAGE_KEY = "local-tts:volume";
 const DOWNLOADED_VOICES_KEY = "local-tts:downloaded-voices";
+const VOICE_STORAGE_KEY = "local-tts:voice";
+
+function loadSavedVoiceId(): string {
+  const saved = localStorage.getItem(VOICE_STORAGE_KEY);
+  return saved && VOICES.some((v) => v.id === saved) ? saved : VOICES[0].id;
+}
 
 function loadSavedSpeed(): number {
   const saved = localStorage.getItem(SPEED_STORAGE_KEY);
@@ -129,10 +135,11 @@ export function useTts(): UseTts {
   // set by a flow that superseded it.
   const opRef = useRef(0);
 
-  // Initialize speed/volume/downloaded-voices from localStorage so the user's
-  // preferences persist across sessions.
+  // Initialize voice/speed/volume/downloaded-voices from localStorage so the
+  // user's preferences persist across sessions.
   const [state, setState] = useState<TtsState>(() => ({
     ...IDLE_STATE,
+    voiceId: loadSavedVoiceId(),
     speed: loadSavedSpeed(),
     volume: loadSavedVolume(),
     downloadedVoiceIds: loadDownloadedVoiceIds(),
@@ -165,6 +172,7 @@ export function useTts(): UseTts {
   const setVoice = useCallback((voiceId: string) => {
     queueRef.current?.stop();
     queueRef.current = null;
+    localStorage.setItem(VOICE_STORAGE_KEY, voiceId);
     setState((prev) => ({
       ...IDLE_STATE,
       voiceId,
@@ -218,6 +226,7 @@ export function useTts(): UseTts {
         // caller re-synthesize the current document.
         queueRef.current?.stop();
         queueRef.current = null;
+        localStorage.setItem(VOICE_STORAGE_KEY, voiceId);
         setState((prev) => ({ ...prev, voiceId }));
         return;
       }
@@ -241,6 +250,7 @@ export function useTts(): UseTts {
         })
         .then(() => {
           if (opRef.current !== myOp) return;
+          localStorage.setItem(VOICE_STORAGE_KEY, voiceId);
           setState((prev) => {
             const ids = Array.from(new Set([...prev.downloadedVoiceIds, voiceId]));
             localStorage.setItem(DOWNLOADED_VOICES_KEY, JSON.stringify(ids));
