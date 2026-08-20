@@ -34,7 +34,7 @@ export function ReadingHeader({
           )}
         </div>
       ) : (
-        <p className="font-p mt-1 text-text-secondary flex justify-center text-cener">
+        <p className="font-p mt-1 text-text-secondary flex justify-center text-center">
           {format} • {estimate}
         </p>
       )}
