@@ -25,7 +25,11 @@ export function ReadingHeader({
 }: ReadingHeaderProps) {
   return (
     <header className="text-center md:text-left border-b border-border-primary pb-4 z-10">
-      <h1 className="font-h1 font-bold mb-2 truncate">{title}</h1>
+      <h1
+        className={`font-h1 font-bold pb-1 truncate overflow-auto ${showChapter ? "text-left" : "text-center"}`}
+      >
+        {title}
+      </h1>
       {showChapter ? (
         <div className="font-p mt-1 flex flex-col items-center gap-1 text-text-secondary md:flex-row md:items-center md:justify-between md:gap-2">
           <span>
@@ -59,7 +63,7 @@ export function ReadingHeader({
           )}
         </div>
       ) : (
-        <p className="font-p mt-1 text-text-secondary flex justify-center text-cener">
+        <p className="font-p mt-1 text-center text-text-secondary ">
           {format} • {estimate}
         </p>
       )}
