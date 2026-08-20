@@ -13,6 +13,9 @@
 
 export const GAP_MS = 30;
 
+/** Rough Piper Spanish speech synthesis rate, in characters per second. */
+export const ESTIMATED_CHARS_PER_SEC = 15;
+
 /**
  * Reads the sample rate from a WAV header (offset 24, little-endian).
  * Returns null if the buffer is too small or not a valid RIFF/WAV.

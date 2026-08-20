@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { ESTIMATED_CHARS_PER_SEC } from "../../lib/audio";
 
 type WordToken = {
   text: string;
@@ -45,10 +46,6 @@ const ACTIVE_WORD_CLASS = "rounded-[4px] bg-action-primary/40 text-text-primary"
 const ACTIVE_CHUNK_CLASS = "bg-action-primary/10 text-text-primary";
 const PAST_CLASS = "text-text-secondary";
 const FUTURE_CLASS = "text-text-primary";
-
-/** Rough Piper Spanish synthesis rate, used to estimate a chunk's spoken
- * duration when its real one isn't known yet (see buildTokens). */
-const ESTIMATED_CHARS_PER_SEC = 15;
 
 /** Splits text into words and whitespace tokens. */
 function splitWords(text: string): string[] {
