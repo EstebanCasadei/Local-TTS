@@ -23,12 +23,13 @@ export function VoicesPanel({
   downloadingId: string | null;
 }) {
   const items: PanelItem[] = voices.map((voice) => {
+    const detail = `${voice.accent} · ${voice.size}`;
     if (voice.id === selectedId)
-      return { id: voice.id, name: voice.label, detail: voice.accent, status: "selected" as const };
+      return { id: voice.id, name: voice.label, detail, status: "selected" as const };
     if (downloadedIds.includes(voice.id)) {
-      return { id: voice.id, name: voice.label, detail: voice.accent, status: "ready" as const };
+      return { id: voice.id, name: voice.label, detail, status: "ready" as const };
     }
-    return { id: voice.id, name: voice.label, detail: voice.accent, status: "download" as const };
+    return { id: voice.id, name: voice.label, detail, status: "download" as const };
   });
   const [tonal, setTonal] = useState(true);
 

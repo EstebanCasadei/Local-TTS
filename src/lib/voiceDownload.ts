@@ -25,7 +25,9 @@ export interface VoiceDownloadProgress {
 const FALLBACK_VOICE_SIZE: Record<string, number> = {
   "es_ES-davefx-medium": 63_201_294,
   "es_MX-claude-high": 63_122_309,
-  "es_ES-mls_10246-low": 63_104_526,
+  "es_ES-carlfm-x_low": 28_130_791,
+  "es_ES-sharvard-medium": 76_733_615,
+  "es_MX-ald-medium": 63_201_294,
 };
 // Typical size for a Piper "medium" voice, used if a future voiceId isn't in
 // the table above.

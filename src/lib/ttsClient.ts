@@ -10,14 +10,18 @@ export interface Voice {
   id: string;
   label: string;
   accent: string;
+  size: string;
 }
 
 // Piper Spanish voices (from the PoC + Figma accent selection).
 // The library downloads these by ID from HuggingFace on first use.
+// Sizes are the ONNX model file sizes at HuggingFace, rounded for display.
 export const VOICES: Voice[] = [
-  { id: "es_ES-davefx-medium", label: "Davefx", accent: "España" },
-  { id: "es_MX-claude-high", label: "Claude", accent: "México" },
-  { id: "es_ES-mls_10246-low", label: "MLS 10246", accent: "España" },
+  { id: "es_ES-davefx-medium", label: "Davefx", accent: "España", size: "63 MB" },
+  { id: "es_MX-claude-high", label: "Claude", accent: "México", size: "63 MB" },
+  { id: "es_ES-carlfm-x_low", label: "Carlfm", accent: "España", size: "28 MB" },
+  { id: "es_ES-sharvard-medium", label: "Sharvard", accent: "España", size: "77 MB" },
+  { id: "es_MX-ald-medium", label: "Ald", accent: "México", size: "63 MB" },
 ];
 
 export interface DownloadProgress {
