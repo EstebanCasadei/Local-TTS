@@ -26,7 +26,7 @@ export function ReadingHeader({
   return (
     <header className="text-center md:text-left border-b border-border-primary pb-4 z-10">
       <h1
-        className={`font-h1 font-bold pb-1 truncate overflow-auto ${showChapter ? "text-left" : "text-center"}`}
+        className={`font-h1 font-bold pb-1 truncate ${showChapter ? "text-left" : "text-center"}`}
       >
         {title}
       </h1>
