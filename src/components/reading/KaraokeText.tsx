@@ -118,7 +118,7 @@ function buildTokens(
 
     if (i < chunks.length - 1) {
       tokens.push({
-        text: "\n",
+        text: " ",
         isSpace: true,
         chunkIndex: -1,
         start: 0,
