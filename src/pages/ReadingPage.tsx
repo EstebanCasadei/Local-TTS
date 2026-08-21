@@ -324,7 +324,7 @@ export function ReadingPage() {
           </button>
 
           <section
-            className="flex min-h-0 flex-1 flex-col gap-4 bg-bg-primary p-4 md:p-8"
+            className="flex min-h-0 flex-1 flex-col gap-4 bg-bg-primary px-4 pt-4 md:px-8 md:pt-8"
             inert={!expanded}
           >
             <div className="mx-auto flex min-h-0 w-full max-w-[1100px] flex-1 flex-col">

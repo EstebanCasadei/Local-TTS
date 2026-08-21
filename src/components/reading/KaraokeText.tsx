@@ -230,7 +230,7 @@ export function KaraokeText({
   }, [activeIndex, chunks.length, duration, initialChunkIndex, position, tokens]);
 
   return (
-    <div className="h-full min-h-0 flex-1 overflow-y-auto">
+    <div className="relative h-full min-h-0 flex-1 overflow-y-auto">
       <p className="font-p whitespace-pre-line leading-relaxed">
         {tokens.map((token, index) => {
           if (token.isSpace) {
@@ -281,6 +281,10 @@ export function KaraokeText({
           );
         })}
       </p>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none sticky bottom-0 w-full h-16 bg-gradient-to-t from-bg-primary to-transparent"
+      />
     </div>
   );
 }
