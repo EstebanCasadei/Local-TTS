@@ -227,7 +227,13 @@ export function useTts(): UseTts {
         queueRef.current?.stop();
         queueRef.current = null;
         localStorage.setItem(VOICE_STORAGE_KEY, voiceId);
-        setState((prev) => ({ ...prev, voiceId }));
+        setState((prev) => ({
+          ...prev,
+          voiceId,
+          status: "idle",
+          downloadingVoiceId: null,
+          downloadProgress: null,
+        }));
         return;
       }
 
@@ -257,7 +263,14 @@ export function useTts(): UseTts {
             // Switch voice without resetting chunk state — the reading page
             // will re-synthesize the current document and resume from where
             // the user left off.
-            return { ...prev, voiceId, downloadedVoiceIds: ids, status: "idle" };
+            return {
+              ...prev,
+              voiceId,
+              downloadedVoiceIds: ids,
+              status: "idle",
+              downloadingVoiceId: null,
+              downloadProgress: null,
+            };
           });
           queueRef.current?.stop();
           queueRef.current = null;
@@ -388,6 +401,7 @@ export function useTts(): UseTts {
               setState((prev) => ({
                 ...prev,
                 status: "synthesizing",
+                downloadingVoiceId: null,
                 downloadProgress: null,
                 downloadedVoiceIds: Array.from(new Set([...prev.downloadedVoiceIds, prev.voiceId])),
               }));
