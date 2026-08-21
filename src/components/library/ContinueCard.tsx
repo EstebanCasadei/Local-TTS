@@ -26,7 +26,7 @@ export function ContinueCard({ book }: { book: Book }) {
           <h3 className="font-h3 font-semibold truncate">{book.titulo}</h3>
           <BookMeta book={book} progress={progress} />
         </Link>
-        <BookMenu />
+        <BookMenu bookId={book.id} bookTitle={book.titulo} />
       </div>
 
       <div className="flex flex-col gap-2">

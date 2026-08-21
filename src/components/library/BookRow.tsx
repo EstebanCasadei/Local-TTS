@@ -32,7 +32,7 @@ export function BookRow({ book }: { book: Book }) {
 
       <div className="flex items-center gap-2">
         <SyncBadge sync={placeholderSyncFor(book)} />
-        <BookMenu />
+        <BookMenu bookId={book.id} bookTitle={book.titulo} />
       </div>
     </li>
   );

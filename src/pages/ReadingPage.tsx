@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import type { MenuItem } from "../components/library/BookMenu.tsx";
 import { BookMenu } from "../components/library";
 import { ToastProgress, useToast } from "../components";
@@ -33,6 +33,7 @@ const VOICE_DOWNLOAD_TOAST_ID = "voice-download";
 
 export function ReadingPage() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const bookId = searchParams.get("book");
 
   const { chunks, progress, capitulos, loading } = useBook(bookId);
@@ -177,17 +178,6 @@ export function ReadingPage() {
     { label: "Programar descanso", icon: SleepIcon },
   ];
 
-  // No book selected — show empty state
-  if (!bookId) {
-    return (
-      <main className="bg-bg-tertiary flex min-h-screen min-h-[100dvh] min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
-        <p className="font-h2 text-text-secondary">
-          No se seleccionó ningún documento. Vuelve a la biblioteca para elegir uno.
-        </p>
-      </main>
-    );
-  }
-
   if (loading) {
     return (
       <main className="bg-bg-tertiary flex min-h-screen min-h-[100dvh] min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
@@ -203,6 +193,9 @@ export function ReadingPage() {
       </main>
     );
   }
+
+  // bookId is guaranteed to be a string once we reach the main render.
+  const currentBookId = bookId as string;
 
   const format = bookFormat || "TXT";
   const voiceName = tts.voices.find((v) => v.id === tts.voiceId)?.label ?? "Voz";
@@ -285,7 +278,18 @@ export function ReadingPage() {
     <main className="flex h-[100dvh] min-w-0 flex-1 flex-col overflow-hidden bg-bg-tertiary">
       {/* Menú fijo, visible incluso cuando sube el panel de texto. */}
       <div className="fixed top-4 right-4 z-50">
-        <BookMenu className={MENU_BUTTON} extraItems={menuItems} iconClassName="size-6" />
+        <BookMenu
+          bookId={currentBookId}
+          bookTitle={bookTitle}
+          className={MENU_BUTTON}
+          extraItems={menuItems}
+          iconClassName="size-6"
+          onDeleted={() => {
+            tts.reset();
+            navigate("/");
+          }}
+          onRenamed={setBookTitle}
+        />
       </div>
 
       {/* Escenario: título + esfera detrás; el panel de texto sube y los tapa. */}

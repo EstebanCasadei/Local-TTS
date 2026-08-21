@@ -58,6 +58,9 @@ export class BookRepositoryFacade implements BookRepository {
   deleteBook(bookId: string): Promise<void> {
     return this.active.deleteBook(bookId);
   }
+  renameBook(bookId: string, title: string): Promise<void> {
+    return this.active.renameBook(bookId, title);
+  }
   saveChunks(bookId: string, chunks: Chunk[]): Promise<void> {
     return this.active.saveChunks(bookId, chunks);
   }
