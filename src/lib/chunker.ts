@@ -28,11 +28,13 @@ export interface ChunkOptions {
 export function splitSentences(text: string, locale = "es"): string[] {
   if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
     const segmenter = new Intl.Segmenter(locale, { granularity: "sentence" });
-    return Array.from(segmenter.segment(text), (s) => s.segment.trim()).filter(Boolean);
+    return Array.from(segmenter.segment(text), (s) =>
+      s.segment.replace(/[ \t\u00a0]+$/g, ""),
+    ).filter(Boolean);
   }
   return text
-    .split(/(?<=[.!?…])\s+/)
-    .map((s) => s.trim())
+    .split(/(?<=[.!?…])(?=\s)/)
+    .map((s) => s.replace(/^[ \t\u00a0]+|[ \t\u00a0]+$/g, ""))
     .filter(Boolean);
 }
 
@@ -84,18 +86,24 @@ export function chunkText(text: string, options: ChunkOptions = {}): string[] {
   if (!normalized) return [];
 
   const paragraphs = normalized
-    .split(/\n{1,}/)
+    .split(/\n{2,}/)
     .map((p) => p.trim())
     .filter(Boolean);
 
   const chunks: string[] = [];
 
-  for (const paragraph of paragraphs) {
+  for (let p = 0; p < paragraphs.length; p++) {
+    const paragraph = paragraphs[p];
+    const isLastParagraph = p === paragraphs.length - 1;
+
     if (granularity === "clausulas") {
       for (const sentence of splitSentences(paragraph, locale)) {
         for (const clause of splitClauses(sentence, maxChars)) {
           chunks.push(clause);
         }
+      }
+      if (!isLastParagraph && chunks.length) {
+        chunks[chunks.length - 1] += "\n\n";
       }
       continue;
     }
@@ -122,6 +130,9 @@ export function chunkText(text: string, options: ChunkOptions = {}): string[] {
       }
     }
 
+    if (current && !isLastParagraph) {
+      current += "\n\n";
+    }
     flush();
   }
 

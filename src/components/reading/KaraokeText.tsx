@@ -117,14 +117,19 @@ function buildTokens(
     }
 
     if (i < chunks.length - 1) {
-      tokens.push({
-        text: " ",
-        isSpace: true,
-        chunkIndex: -1,
-        start: 0,
-        end: 0,
-        localOffset: 0,
-      });
+      const next = chunks[i + 1];
+      const hasTrailingSpace = /\s$/.test(chunk);
+      const hasLeadingSpace = /^\s/.test(next);
+      if (!hasTrailingSpace && !hasLeadingSpace) {
+        tokens.push({
+          text: " ",
+          isSpace: true,
+          chunkIndex: -1,
+          start: 0,
+          end: 0,
+          localOffset: 0,
+        });
+      }
     }
   }
 

@@ -138,7 +138,7 @@ export function collapseWhitespace(text: string): string {
     .split("\n")
     .map((line) => line.trim())
     .join("\n")
-    .replace(/\n{2,}/g, "\n")
+    .replace(/\n{2,}/g, "\n\n")
     .trim();
 }
 

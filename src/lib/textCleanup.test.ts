@@ -51,8 +51,8 @@ describe("collapseWhitespace", () => {
     expect(collapseWhitespace("texto\u00adinvisible")).toBe("textoinvisible");
   });
 
-  it("collapses multiple newlines into one", () => {
-    expect(collapseWhitespace("texto\n\n\nmás")).toBe("texto\nmás");
+  it("collapses multiple newlines into a paragraph break", () => {
+    expect(collapseWhitespace("texto\n\n\nmás")).toBe("texto\n\nmás");
   });
 
   it("trims leading and trailing whitespace", () => {

@@ -152,7 +152,7 @@ async function handleSynthesize(
   const useCache = bookId && chunkIds && chunkIds.length === chunks.length;
   const cachedAudio = useCache ? await audioLocal(bookId!, voiceId) : new Map<string, string>();
   const hashes: (string | null)[] = useCache
-    ? await Promise.all(chunks.map((text) => textHash(text, voiceId)))
+    ? await Promise.all(chunks.map((text) => textHash(text.trim(), voiceId)))
     : chunks.map(() => null);
 
   // Determine which chunks need synthesis vs. are cached.
@@ -207,7 +207,7 @@ async function handleSynthesize(
     // mid-init).
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const wav = await synthesizeChunk(voiceId, chunks[index]);
+        const wav = await synthesizeChunk(voiceId, chunks[index].trim());
 
         // Save to OPFS cache if we have a bookId + chunkId + hash.
         if (useCache && hashes[index] && chunkIds?.[index]) {
