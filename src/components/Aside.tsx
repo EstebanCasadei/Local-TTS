@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, NavLink, useLocation } from "react-router";
 import BookIcon from "../icons/BookIcon.svg?react";
-import CloudIcon from "../icons/CloudIcon.svg?react";
+// import CloudIcon from "../icons/CloudIcon.svg?react";
 import GearIcon from "../icons/GearIcon.svg?react";
 import HelpIcon from "../icons/HelpIcon.svg?react";
 import LibraryIcon from "../icons/LibraryIcon.svg?react";
@@ -24,8 +24,6 @@ const SECONDARY = [
   { id: "help", label: "Ayuda", icon: HelpIcon },
   { id: "privacy", label: "Privacidad", icon: ShieldIcon },
 ];
-
-let syncStatus = "synced"; // "synced", "syncing", "error"
 
 export function Aside() {
   const [open, setOpen] = useState(false);
@@ -80,11 +78,12 @@ export function Aside() {
               </NavLink>
             ) : (
               <a
-                className="font-h3 flex items-center gap-3 rounded-[8px] p-4 text-text-primary hover:bg-bg-tertiary"
+                className="font-h3 flex cursor-not-allowed items-center gap-3 rounded-[8px] p-4 text-text-secondary"
                 href={`#${label}`}
                 key={label}
+                onClick={(event) => event.preventDefault()}
               >
-                <Icon className="size-5 shrink-0" />
+                <Icon className="size-5 shrink-0 text-text-secondary" />
                 {label}
               </a>
             ),
@@ -94,23 +93,24 @@ export function Aside() {
         <nav className="mt-auto flex flex-col gap-1">
           {SECONDARY.map(({ id, label, icon: Icon }) => (
             <a
-              className="font-h3 flex items-center gap-3 rounded-[8px] p-4"
+              className="font-h3 flex cursor-not-allowed items-center gap-3 rounded-[8px] p-4 text-text-secondary"
               href={`#${id}`}
               key={id}
+              onClick={(event) => event.preventDefault()}
             >
-              <Icon className="size-5 shrink-0" />
+              <Icon className="size-5 shrink-0 text-text-secondary" />
               {label}
             </a>
           ))}
         </nav>
 
-        <div className="flex items-center justify-between gap-2 border-t border-border-primary p-4 pb-0">
+        {/* <div className="flex items-center justify-between gap-2 border-t border-border-primary p-4 pb-0">
           <div className="min-w-0">
             <p className="font-h3 truncate">Jane Doe</p>
             <p className="font-label truncate text-text-secondary">janedoe@gmail.com</p>
-          </div>
-          {/* TODO: Add sync status indicator */}
-          {syncStatus === "synced" && (
+          </div> */}
+        {/* TODO: Add sync status indicator */}
+        {/* {syncStatus === "synced" && (
             <span
               aria-label="Estado: Sincronizado"
               className="grid size-8 shrink-0 place-items-center rounded-full text-text-inverse bg-action-success p-2"
@@ -134,7 +134,7 @@ export function Aside() {
               <CloudIcon className="size-4" />
             </span>
           )}
-        </div>
+        </div> */}
       </aside>
     </>
   );

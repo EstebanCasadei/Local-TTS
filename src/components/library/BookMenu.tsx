@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import type { FunctionComponent, SVGProps } from "react";
-import CloudUpIcon from "../../icons/CloudUpIcon.svg?react";
 import PencilIcon from "../../icons/PencilIcon.svg?react";
 import TrashIcon from "../../icons/TrashIcon.svg?react";
 import { getBookRepository } from "../../lib/books";
@@ -70,7 +69,7 @@ export function BookMenu({
   const hasBadge = extraItems?.some((item) => item.badge) ?? false;
 
   const documentItems: MenuItem[] = [
-    { label: "Subir a la nube", icon: CloudUpIcon },
+    // { label: "Subir a la nube", icon: CloudUpIcon },
     {
       label: "Renombrar",
       icon: PencilIcon,

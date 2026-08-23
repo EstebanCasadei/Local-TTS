@@ -76,4 +76,22 @@
       transform: rotate(360deg);
     }
   }
+
+  .brand-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-text-secondary) transparent;
+  }
+
+  .brand-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .brand-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .brand-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-brand-primary);
+    border-radius: 999px;
+  }
 }

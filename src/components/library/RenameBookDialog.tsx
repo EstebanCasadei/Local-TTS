@@ -35,7 +35,7 @@ export function RenameBookDialog({
       footer={
         <>
           <button
-            className="font-p rounded-[8px] px-4 py-2 text-text-secondary transition duration-150 hover:bg-bg-tertiary disabled:opacity-50"
+            className="font-p cursor-pointer rounded-[8px] px-4 py-2 text-text-secondary transition duration-150 hover:bg-bg-tertiary disabled:opacity-50"
             disabled={busy}
             onClick={onClose}
             type="button"
@@ -43,7 +43,7 @@ export function RenameBookDialog({
             Cancelar
           </button>
           <button
-            className="font-p rounded-[8px] bg-action-primary px-4 py-2 font-bold text-text-primary transition duration-150 hover:bg-action-primary-hover disabled:opacity-50"
+            className="font-p cursor-pointer rounded-[8px] bg-action-primary px-4 py-2 font-bold text-text-primary transition duration-150 hover:bg-action-primary-hover disabled:opacity-50"
             disabled={busy}
             type="submit"
             form="rename-book-form"

@@ -1,6 +1,4 @@
-import { useState } from "react";
 import type { Voice } from "../../lib/ttsClient";
-import InfoIcon from "../../icons/InfoIcon.svg?react";
 import type { PanelItem } from "./PanelList.tsx";
 import { PanelList, PanelSectionTitle } from "./PanelList.tsx";
 import { SidePanel } from "./SidePanel.tsx";
@@ -31,16 +29,16 @@ export function VoicesPanel({
     }
     return { id: voice.id, name: voice.label, detail, status: "download" as const };
   });
-  const [tonal, setTonal] = useState(true);
+  // const [tonal, setTonal] = useState(true);
 
   return (
     <SidePanel
       footer={
         <>
-          <p className="font-label mb-4 text-center text-text-secondary">
+          <p className="font-label text-center text-text-secondary">
             Las voces se descargan localmente en tu navegador
           </p>
-          <p className="font-h3 mb-2 font-bold">Opciones</p>
+          {/* <p className="font-h3 mb-2 font-bold">Opciones</p>
           <label className="font-p flex cursor-pointer items-center gap-2">
             <InfoIcon className="size-4 shrink-0 text-text-secondary" />
             <span className="flex-1">Activar variación tonal</span>
@@ -51,7 +49,7 @@ export function VoicesPanel({
               type="checkbox"
             />
             <span className="relative h-5 w-9 shrink-0 rounded-full bg-bg-tertiary transition-colors peer-checked:bg-action-primary after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-text-primary after:transition-transform peer-checked:after:translate-x-4" />
-          </label>
+          </label> */}
         </>
       }
       onClose={onClose}

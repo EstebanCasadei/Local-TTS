@@ -235,7 +235,7 @@ export function KaraokeText({
   }, [activeIndex, chunks.length, duration, initialChunkIndex, position, tokens]);
 
   return (
-    <div className="relative h-full min-h-0 flex-1 overflow-y-auto">
+    <div className="brand-scrollbar relative h-full min-h-0 flex-1 overflow-y-auto pr-1">
       <p className="font-p whitespace-pre-line leading-relaxed">
         {tokens.map((token, index) => {
           if (token.isSpace) {

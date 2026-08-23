@@ -157,6 +157,11 @@ const FRAGMENT_SHADER = `
   }
 `;
 
+// Shader time the sphere starts at (before any playback advances it). uTime=0
+// looks flat/uninteresting; bump this to land on a nicer-looking first frame.
+// Tweak and reload to preview — while paused/idle, uTime stays frozen here.
+const INITIAL_TIME = 150;
+
 const PARAMS = {
   zoom: 0.541,
   distortion: -1.196,
@@ -229,7 +234,7 @@ export function VoiceSphere({
     scene.add(new THREE.Mesh(geometry, material));
 
     let rafId = 0;
-    let uTime = 0;
+    let uTime = INITIAL_TIME;
     let lastFrame = 0;
 
     function resize() {

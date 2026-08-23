@@ -13,14 +13,14 @@ export function DeleteBookDialog({ open, title, onClose, onConfirm }: DeleteBook
       footer={
         <>
           <button
-            className="font-p rounded-[8px] px-4 py-2 text-text-secondary transition duration-150 hover:bg-bg-tertiary"
+            className="font-p cursor-pointer rounded-[8px] px-4 py-2 text-text-secondary transition duration-150 hover:bg-bg-tertiary"
             onClick={onClose}
             type="button"
           >
             Cancelar
           </button>
           <button
-            className="font-p rounded-[8px] bg-action-error px-4 py-2 font-bold text-text-inverse transition duration-150 hover:bg-action-error-hover"
+            className="font-p cursor-pointer rounded-[8px] bg-action-error px-4 py-2 font-bold text-text-inverse transition duration-150 hover:bg-action-error-hover"
             onClick={onConfirm}
             type="button"
           >

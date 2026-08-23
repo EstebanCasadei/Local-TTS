@@ -41,7 +41,7 @@ export function ReadingHeader({
               {chapters.length > 1 ? (
                 <select
                   aria-label="Capítulo"
-                  className="max-w-[60vw] cursor-pointer truncate rounded-[8px] pr-1 text-text-secondary md:max-w-80"
+                  className="max-w-[30vw] cursor-pointer truncate rounded-[8px] pr-1 text-text-secondary md:max-w-40"
                   onChange={(event) => onSelectChapter?.(Number(event.target.value))}
                   value={activeChapter ?? chapters[0]?.indice}
                 >
