@@ -5,6 +5,8 @@ import { BookMenu } from "../components/library";
 import { ToastProgress, useToast } from "../components";
 import {
   AudioPanel,
+  BookmarkNoteDialog,
+  BookmarksPanel,
   KaraokeText,
   PlaybackControls,
   ReadingHeader,
@@ -13,14 +15,16 @@ import {
 } from "../components/reading";
 import { useAmbientAudio } from "../hooks/useAmbientAudio.ts";
 import { useBook } from "../hooks/useBook.ts";
+import { useDocumentTitle } from "../hooks/useDocumentTitle.ts";
 import { useProgress } from "../hooks/useProgress.ts";
 import { useTts } from "../hooks/useTts.ts";
 import { getBookRepository } from "../lib/books";
+import type { Bookmark } from "../types/book.ts";
 import { ESTIMATED_CHARS_PER_SEC, formatDuration } from "../lib/audio";
 import BookmarkIcon from "../icons/BookmarkIcon.svg?react";
 import ChevronUpIcon from "../icons/ChevronUpIcon.svg?react";
 import MusicIcon from "../icons/MusicIcon.svg?react";
-import SleepIcon from "../icons/SleepIcon.svg?react";
+// import SleepIcon from "../icons/SleepIcon.svg?react";
 
 /** Alto de la pestaña con la flecha: es lo único que asoma con el panel cerrado. */
 const HANDLE_HEIGHT = "2.25rem";
@@ -40,10 +44,13 @@ export function ReadingPage() {
   const tts = useTts();
   const ambient = useAmbientAudio();
   const { show: showToast, dismiss: dismissToast } = useToast();
-  const [panel, setPanel] = useState<"voices" | "audio" | null>(null);
+  const [panel, setPanel] = useState<"voices" | "audio" | "bookmarks" | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [bookTitle, setBookTitle] = useState<string>("");
   const [bookFormat, setBookFormat] = useState<string>("");
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  useDocumentTitle(bookTitle || "Lectura");
+  const [noteBookmark, setNoteBookmark] = useState<Bookmark | null>(null);
   const progressRef = useRef(progress);
   const lastVoiceIdRef = useRef<string | null>(null);
 
@@ -61,6 +68,13 @@ export function ReadingPage() {
         setBookFormat(book.formatoOriginal.toUpperCase());
       });
   }, [bookId]);
+
+  const reloadBookmarks = () => {
+    if (!bookId) return;
+    void getBookRepository().getBookmarks(bookId).then(setBookmarks);
+  };
+
+  useEffect(reloadBookmarks, [bookId]);
 
   // Voice model download progress lives in a toast (bottom-right) instead of
   // an inline banner, so it keeps notifying even if the user closes the
@@ -168,14 +182,14 @@ export function ReadingPage() {
   };
 
   const menuItems: MenuItem[] = [
-    { label: "Marcadores", icon: BookmarkIcon },
+    { label: "Marcadores", icon: BookmarkIcon, onSelect: () => setPanel("bookmarks") },
     {
       label: "Música/sonido ambiente",
       icon: MusicIcon,
       onSelect: () => setPanel("audio"),
       badge: ambient.isPlaying,
     },
-    { label: "Programar descanso", icon: SleepIcon },
+    // { label: "Programar descanso", icon: SleepIcon },
   ];
 
   if (loading) {
@@ -217,6 +231,75 @@ export function ReadingPage() {
   const displayChunkIndex = showSaved ? savedChunkIndex : tts.activeChunkIndex;
   const currentCapituloId = chunks[displayChunkIndex]?.capituloId ?? null;
   const chapterTitle = capitulos.find((c) => c.indice === currentCapituloId)?.titulo ?? "";
+
+  const getChunkPreview = (chunkId: string) =>
+    (chunkTexts[chunkIds.indexOf(chunkId)] ?? "").replace(/\s+/g, " ").trim();
+
+  const handleAddBookmark = () => {
+    const chunkId = chunkIds[displayChunkIndex];
+    if (!chunkId) return;
+    const chunkStart = tts.chunkStartTimes[displayChunkIndex] ?? displayPosition;
+    const offsetLocal = showSaved
+      ? (progress?.offsetLocal ?? 0)
+      : Math.max(0, displayPosition - chunkStart);
+    const bookmark: Bookmark = {
+      id: crypto.randomUUID(),
+      bookId: currentBookId,
+      chunkId,
+      offsetSegundos: displayPosition,
+      offsetLocal,
+      nombre: null,
+      createdAt: Date.now(),
+    };
+    void getBookRepository()
+      .saveBookmark(bookmark)
+      .then(() => {
+        reloadBookmarks();
+        const toastId = showToast(
+          <div>
+            <p className="font-p font-medium">Se guardó un marcador</p>
+            <p className="font-label truncate text-text-secondary">{getChunkPreview(chunkId)}</p>
+            <button
+              className="font-p mt-2 cursor-pointer font-medium rounded-lg px-3 py-2 bg-text-primary hover:bg-text-secondary text-text-inverse"
+              onClick={() => {
+                clearTimeout(timeout);
+                dismissToast(toastId);
+                setNoteBookmark(bookmark);
+              }}
+              type="button"
+            >
+              Agregar nota
+            </button>
+          </div>,
+        );
+        const timeout = setTimeout(() => dismissToast(toastId), 4000);
+      });
+  };
+
+  const handlePlayBookmark = (bookmark: Bookmark) => {
+    const index = chunkIds.indexOf(bookmark.chunkId);
+    if (index === -1) return;
+    const offsetLocal = bookmark.offsetLocal ?? 0;
+    if (isIdle) {
+      void tts.synthesize(allText, currentBookId, chunkIds, chunkTexts, {
+        chunkIndex: index,
+        offsetLocal,
+      });
+    } else {
+      tts.seekToChunk(index, offsetLocal);
+      tts.play();
+    }
+  };
+
+  const handleDeleteBookmark = (bookmarkId: string) => {
+    void getBookRepository().deleteBookmark(currentBookId, bookmarkId).then(reloadBookmarks);
+  };
+
+  const handleSaveNote = (bookmark: Bookmark, note: string) => {
+    void getBookRepository()
+      .saveBookmark({ ...bookmark, nombre: note || null })
+      .then(reloadBookmarks);
+  };
 
   // Scope the karaoke text to the chunks of the current chapter only, instead
   // of rendering the whole book — chunks are stored contiguously per chapter
@@ -342,7 +425,7 @@ export function ReadingPage() {
                 title={bookTitle || "Documento"}
               />
 
-              <div className="min-h-0 flex-1 mt-4">
+              <div className="min-h-0 flex-1 mt-4 max-w-[900px] mx-auto">
                 <KaraokeText
                   chunkStartTimes={chapterChunkStartTimes}
                   chunks={chapterKaraokeChunks}
@@ -378,6 +461,7 @@ export function ReadingPage() {
       <PlaybackControls
         duration={formatDuration(displayDuration)}
         isPlaying={tts.status === "playing"}
+        onBookmark={handleAddBookmark}
         onForward={tts.forward}
         onOpenVoices={() => setPanel("voices")}
         onRewind={tts.rewind}
@@ -411,6 +495,23 @@ export function ReadingPage() {
         voices={tts.voices}
       />
       <AudioPanel ambient={ambient} onClose={() => setPanel(null)} open={panel === "audio"} />
+      <BookmarksPanel
+        bookmarks={bookmarks}
+        getChunkPreview={getChunkPreview}
+        onClose={() => setPanel(null)}
+        onDelete={handleDeleteBookmark}
+        onEditNote={setNoteBookmark}
+        onPlay={handlePlayBookmark}
+        open={panel === "bookmarks"}
+      />
+      <BookmarkNoteDialog
+        currentNote={noteBookmark?.nombre ?? ""}
+        onClose={() => setNoteBookmark(null)}
+        onConfirm={(note) => {
+          if (noteBookmark) handleSaveNote(noteBookmark, note);
+        }}
+        open={noteBookmark !== null}
+      />
     </main>
   );
 }

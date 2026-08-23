@@ -23,6 +23,7 @@ type PlaybackControlsProps = {
   onOpenVoices: () => void;
   onRewind?: () => void;
   onForward?: () => void;
+  onBookmark?: () => void;
 };
 
 export function PlaybackControls({
@@ -40,6 +41,7 @@ export function PlaybackControls({
   onOpenVoices,
   onRewind,
   onForward,
+  onBookmark,
 }: PlaybackControlsProps) {
   return (
     <div className="flex flex-col gap-3 border-t border-border-primary bg-bg-tertiary px-4 py-3">
@@ -84,7 +86,7 @@ export function PlaybackControls({
             <IconButton label="Adelantar 15 segundos" onClick={onForward}>
               <ForwardIcon className="size-5" />
             </IconButton>
-            <IconButton label="Guardar marcador">
+            <IconButton label="Guardar marcador" onClick={onBookmark}>
               <BookmarkIcon className="size-5" />
             </IconButton>
           </div>

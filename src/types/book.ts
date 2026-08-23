@@ -49,7 +49,10 @@ export interface Bookmark {
   id: string;
   bookId: string;
   chunkId: string;
+  /** Global playback position in seconds — used for display. */
   offsetSegundos: number;
+  /** Offset within the chunk in seconds — used to resume exactly (see Progress.offsetLocal). */
+  offsetLocal?: number;
   nombre: string | null;
   createdAt: EpochTimestamp;
 }
