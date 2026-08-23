@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useDocumentTitle } from "../hooks/useDocumentTitle.ts";
 import { useTts } from "../hooks/useTts.ts";
 
 // Tracer bullet page (#5): text input → voice select → Read → Piper TTS → playback.
@@ -23,6 +24,7 @@ const SAMPLE_TEXT =
   "Solo el tiempo lo dirá, pero una cosa es cierta: el cambio ya empezó.";
 
 export function TracerPage() {
+  useDocumentTitle("Tracer");
   const tts = useTts();
   const [text, setText] = useState(SAMPLE_TEXT);
 

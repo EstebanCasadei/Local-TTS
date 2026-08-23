@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { BookRow, ContinueCard, SearchIcon } from "../components/library";
+import { useDocumentTitle } from "../hooks/useDocumentTitle.ts";
 import { useLibrary } from "../hooks/useLibrary.ts";
 import { extractDocument, ACCEPT_ATTRIBUTE, type ExtractProgress } from "../lib/extract";
 import { ERROR_MESSAGES, ExtractionError } from "../lib/extract/types";
@@ -14,6 +15,7 @@ type UploadState =
   | { status: "error"; message: string };
 
 export function LibraryPage() {
+  useDocumentTitle("Biblioteca");
   const { books, loading } = useLibrary();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
