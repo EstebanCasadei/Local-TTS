@@ -89,7 +89,7 @@ async function getSession(voiceId: string): Promise<tts.TtsSession> {
           loaded: progress.loaded,
           total: progress.total,
         }),
-      logger: (text: string) => console.debug("[tts-worker]", text),
+      logger: () => {},
     });
   } catch (err) {
     // The library's static _instance is left pointing at the failed session
@@ -211,9 +211,7 @@ async function handleSynthesize(
 
         // Save to OPFS cache if we have a bookId + chunkId + hash.
         if (useCache && hashes[index] && chunkIds?.[index]) {
-          await saveChunk(bookId!, chunkIds[index], hashes[index]!, wav, voiceId).catch((err) => {
-            console.warn(`[tts-worker] failed to cache chunk ${index + 1}:`, err);
-          });
+          await saveChunk(bookId!, chunkIds[index], hashes[index]!, wav, voiceId).catch(() => {});
         }
 
         // Transfer the buffer (postMessage detaches it) to avoid copying.
@@ -222,9 +220,6 @@ async function handleSynthesize(
         break;
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
-        if (attempt === 0) {
-          console.warn(`[tts-worker] chunk ${index + 1} failed, retrying:`, lastError.message);
-        }
       }
     }
 
@@ -284,7 +279,6 @@ self.addEventListener("message", (event: MessageEvent) => {
       else if (type === "synthesize") await handleSynthesize(id, voiceId, chunks, bookId, chunkIds);
       else throw new Error(`Unknown message type: ${type}`);
     } catch (err) {
-      console.error("[tts-worker]", err);
       post({
         type: "error",
         id,

@@ -74,6 +74,24 @@ describe("chunkText", () => {
     expect(chunkText(null as unknown as string)).toEqual([]);
     expect(chunkText(undefined as unknown as string)).toEqual([]);
   });
+
+  it("never produces a chunk with no synthesizable text (whitespace-only)", () => {
+    // Regression: a mid-paragraph newline that the sentence segmenter isolates
+    // as its own "sentence" used to become its own chunk — Piper can't
+    // synthesize a chunk that's just "\n", failing with "No text to predict
+    // on." Every chunk must have real (non-whitespace) content.
+    const samples = [
+      "Prueba.\nPrueba test, hello world.",
+      "Título\nTexto siguiente sin punto final\nOtra línea más.",
+      "Uno.\n.\nDos.",
+      "Línea uno.\r\nLínea dos.\r\nLínea tres.",
+    ];
+    for (const sample of samples) {
+      for (const chunk of chunkText(sample)) {
+        expect(chunk.trim().length).toBeGreaterThan(0);
+      }
+    }
+  });
 });
 
 describe("splitClauses", () => {

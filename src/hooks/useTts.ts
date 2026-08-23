@@ -434,9 +434,8 @@ export function useTts(): UseTts {
               });
               decodePromises.push(p);
             },
-            onChunkFailed: ({ index, message }) => {
+            onChunkFailed: ({ index }) => {
               if (stale()) return;
-              console.warn(`[useTts] chunk ${index + 1} failed:`, message);
               queue?.markSkipped(index);
             },
           },

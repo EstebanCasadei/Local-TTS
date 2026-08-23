@@ -99,6 +99,14 @@ export function chunkText(text: string, options: ChunkOptions = {}): string[] {
     if (granularity === "clausulas") {
       for (const sentence of splitSentences(paragraph, locale)) {
         for (const clause of splitClauses(sentence, maxChars)) {
+          // A clause that's only whitespace/newlines has nothing for Piper to
+          // synthesize. Fold it into the previous chunk instead of pushing it
+          // as its own chunk — this preserves the line break for KaraokeText
+          // without producing an unspeakable chunk.
+          if (!clause.trim()) {
+            if (chunks.length) chunks[chunks.length - 1] += clause;
+            continue;
+          }
           chunks.push(clause);
         }
       }
@@ -119,6 +127,14 @@ export function chunkText(text: string, options: ChunkOptions = {}): string[] {
       const units = sentence.length > maxChars ? splitClauses(sentence, maxChars) : [sentence];
 
       for (const unit of units) {
+        // A unit that's only whitespace/newlines has nothing to synthesize —
+        // fold it into whichever chunk it borders instead of letting it
+        // become (or end up alone in) `current`.
+        if (!unit.trim()) {
+          if (current) current += unit;
+          else if (chunks.length) chunks[chunks.length - 1] += unit;
+          continue;
+        }
         if (!current) {
           current = unit;
         } else if (current.length + 1 + unit.length <= maxChars) {
