@@ -319,6 +319,9 @@ export function useTts(): UseTts {
   }, []);
 
   const seekToChunk = useCallback((index: number, localTime?: number) => {
+    // If the target chunk hasn't synthesized yet, jump the worker straight
+    // to it instead of leaving it to finish every chunk in between first.
+    clientRef.current?.prioritize(index);
     queueRef.current?.seekToChunk(index, localTime);
   }, []);
 

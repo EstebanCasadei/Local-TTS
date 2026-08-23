@@ -52,8 +52,13 @@ describe("extractDocument", () => {
     });
   });
 
-  it("throws UNSUPPORTED_TYPE for PDF (not implemented yet)", async () => {
-    const file = new File(["data"], "doc.pdf");
+  // PDF extraction itself (pdfjs-dist) needs browser APIs (DOMMatrix, canvas)
+  // that jsdom doesn't provide, so it isn't exercised here. Its pure layout
+  // logic (line reconstruction, column detection, chapter grouping) is
+  // covered in pdfLayout.test.ts instead.
+
+  it("throws UNSUPPORTED_TYPE for EPUB (not implemented yet)", async () => {
+    const file = new File(["data"], "doc.epub");
     await expect(extractDocument(file)).rejects.toMatchObject({
       code: ErrorCode.UNSUPPORTED_TYPE,
     });

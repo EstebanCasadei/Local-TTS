@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import type { Book } from "../../types/book.ts";
+import { useBookProgress } from "../../hooks/useBookProgress.ts";
 import { BookMenu } from "./BookMenu.tsx";
 import { BookMeta, PlayIcon, SyncBadge } from "./shared.tsx";
 
@@ -10,6 +11,7 @@ function placeholderSyncFor(book: Book): "cloud" | "local" {
 }
 
 export function BookRow({ book }: { book: Book }) {
+  const { progress } = useBookProgress(book.id);
   return (
     <li className="flex items-center gap-3 border-b border-border-primary py-3 last:border-b-0">
       <Link
@@ -25,7 +27,7 @@ export function BookRow({ book }: { book: Book }) {
         to={`/reading?book=${book.id}`}
       >
         <p className="font-p truncate">{book.titulo}</p>
-        <BookMeta book={book} />
+        <BookMeta book={book} progress={progress} />
       </Link>
 
       <div className="flex items-center gap-2">

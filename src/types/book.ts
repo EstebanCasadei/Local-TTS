@@ -40,6 +40,8 @@ export interface Progress {
   offsetSegundos: number;
   /** Offset within the chunk in seconds — used for word-level resume. */
   offsetLocal?: number;
+  /** Chapter the current chunk belongs to — used for library display. */
+  capituloId?: number | null;
   fechaUltimaEscucha: EpochTimestamp;
 }
 

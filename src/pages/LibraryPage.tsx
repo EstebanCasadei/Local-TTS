@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { BookRow, ContinueCard, SearchIcon } from "../components/library";
 import { useLibrary } from "../hooks/useLibrary.ts";
-import { extractDocument, ACCEPT_ATTRIBUTE } from "../lib/extract";
+import { extractDocument, ACCEPT_ATTRIBUTE, type ExtractProgress } from "../lib/extract";
 import { ERROR_MESSAGES, ExtractionError } from "../lib/extract/types";
 import { chunkText } from "../lib/chunker";
 import { getBookRepository } from "../lib/books";
@@ -10,7 +10,7 @@ import UploadIcon from "../icons/UploadIcon.svg?react";
 
 type UploadState =
   | { status: "idle" }
-  | { status: "extracting"; fileName: string }
+  | { status: "extracting"; fileName: string; progress?: ExtractProgress }
   | { status: "error"; message: string };
 
 export function LibraryPage() {
@@ -32,36 +32,44 @@ export function LibraryPage() {
 
     try {
       // 1. Extract + clean the document text
-      const doc = await extractDocument(file);
+      const doc = await extractDocument(file, {
+        onProgress: (progress) =>
+          setUpload({ status: "extracting", fileName: file.name, progress }),
+      });
 
-      // 2. Chunk all chapter text for TTS
-      const allText = doc.chapters.map((ch) => ch.text).join("\n");
-      const chunkStrings = chunkText(allText);
-      if (chunkStrings.length === 0) {
+      // 2. Chunk each chapter separately so chunks know which chapter they belong to.
+      const bookId = crypto.randomUUID();
+      const now = Date.now();
+      const chunks: Chunk[] = [];
+      let chunkIndex = 0;
+      for (const ch of doc.chapters) {
+        for (const text of chunkText(ch.text)) {
+          chunks.push({
+            id: `c${String(chunkIndex).padStart(4, "0")}`,
+            bookId,
+            indiceOrden: chunkIndex,
+            capituloId: ch.index,
+            texto: text,
+            voiceId: "es_ES-davefx-medium",
+          });
+          chunkIndex++;
+        }
+      }
+      if (chunks.length === 0) {
         throw new ExtractionError("EMPTY_DOCUMENT" as never, file.name);
       }
 
       // 3. Create the Book + Chunk records in the repository
-      const bookId = crypto.randomUUID();
-      const now = Date.now();
       const book: Book = {
         id: bookId,
         titulo: doc.title,
         autor: doc.meta.author ?? null,
         formatoOriginal: doc.kind,
-        totalChunks: chunkStrings.length,
+        totalChunks: chunks.length,
         capitulos: doc.chapters.map((ch) => ({ indice: ch.index, titulo: ch.title })),
         fechaCreacion: now,
         fechaModificacion: now,
       };
-      const chunks: Chunk[] = chunkStrings.map((texto, i) => ({
-        id: `c${String(i).padStart(4, "0")}`,
-        bookId,
-        indiceOrden: i,
-        capituloId: null,
-        texto,
-        voiceId: "es_ES-davefx-medium",
-      }));
 
       const repo = getBookRepository();
       await repo.saveBook(book);
@@ -136,7 +144,11 @@ export function LibraryPage() {
 
       {upload.status === "extracting" && (
         <div className="mt-6 rounded-[8px] border border-border-primary bg-bg-secondary p-4 text-center">
-          <p className="font-p text-text-secondary">Procesando "{upload.fileName}"…</p>
+          <p className="font-p text-text-secondary">
+            Procesando "{upload.fileName}"…
+            {upload.progress?.phase === "pages" &&
+              ` Página ${upload.progress.done}/${upload.progress.total}`}
+          </p>
         </div>
       )}
 
