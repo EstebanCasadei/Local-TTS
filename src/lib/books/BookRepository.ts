@@ -15,6 +15,7 @@ export interface BookRepository {
   /** Live list of all books. Returns unsubscribe. */
   onBooks(cb: (books: Book[]) => void): () => void;
   deleteBook(bookId: string): Promise<void>;
+  renameBook(bookId: string, title: string): Promise<void>;
 
   // --- Chunks ---
   saveChunks(bookId: string, chunks: Chunk[]): Promise<void>;

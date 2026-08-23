@@ -1,24 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import type { MenuItem } from "../components/library/BookMenu.tsx";
 import { BookMenu } from "../components/library";
+import { ToastProgress, useToast } from "../components";
 import {
   AudioPanel,
+  BookmarkNoteDialog,
+  BookmarksPanel,
   KaraokeText,
   PlaybackControls,
   ReadingHeader,
   VoiceSphere,
   VoicesPanel,
 } from "../components/reading";
+import { useAmbientAudio } from "../hooks/useAmbientAudio.ts";
 import { useBook } from "../hooks/useBook.ts";
+import { useDocumentTitle } from "../hooks/useDocumentTitle.ts";
 import { useProgress } from "../hooks/useProgress.ts";
 import { useTts } from "../hooks/useTts.ts";
 import { getBookRepository } from "../lib/books";
-import { formatDuration } from "../lib/audio";
+import type { Bookmark } from "../types/book.ts";
+import { ESTIMATED_CHARS_PER_SEC, formatDuration } from "../lib/audio";
 import BookmarkIcon from "../icons/BookmarkIcon.svg?react";
 import ChevronUpIcon from "../icons/ChevronUpIcon.svg?react";
 import MusicIcon from "../icons/MusicIcon.svg?react";
-import SleepIcon from "../icons/SleepIcon.svg?react";
+// import SleepIcon from "../icons/SleepIcon.svg?react";
 
 /** Alto de la pestaña con la flecha: es lo único que asoma con el panel cerrado. */
 const HANDLE_HEIGHT = "2.25rem";
@@ -26,16 +32,27 @@ const HANDLE_HEIGHT = "2.25rem";
 const MENU_BUTTON =
   "grid size-10 cursor-pointer list-none place-items-center rounded-full shadow-large bg-bg-secondary text-text-primary border border-border-primary transition duration-150 hover:bg-bg-tertiary active:scale-95";
 
+/** Id fijo: reusa el mismo toast en vez de apilar uno nuevo en cada actualización de progreso. */
+const VOICE_DOWNLOAD_TOAST_ID = "voice-download";
+
 export function ReadingPage() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const bookId = searchParams.get("book");
 
   const { chunks, progress, capitulos, loading } = useBook(bookId);
   const tts = useTts();
-  const [panel, setPanel] = useState<"voices" | "audio" | null>(null);
+  const ambient = useAmbientAudio();
+  const { show: showToast, dismiss: dismissToast } = useToast();
+  const [panel, setPanel] = useState<"voices" | "audio" | "bookmarks" | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [bookTitle, setBookTitle] = useState<string>("");
+  const [bookFormat, setBookFormat] = useState<string>("");
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  useDocumentTitle(bookTitle || "Lectura");
+  const [noteBookmark, setNoteBookmark] = useState<Bookmark | null>(null);
   const progressRef = useRef(progress);
+  const lastVoiceIdRef = useRef<string | null>(null);
 
   // Keep progressRef in sync so handleRead always sees the latest saved progress.
   progressRef.current = progress;
@@ -46,9 +63,70 @@ export function ReadingPage() {
     getBookRepository()
       .getBook(bookId)
       .then((book) => {
-        if (book) setBookTitle(book.titulo);
+        if (!book) return;
+        setBookTitle(book.titulo);
+        setBookFormat(book.formatoOriginal.toUpperCase());
       });
   }, [bookId]);
+
+  const reloadBookmarks = () => {
+    if (!bookId) return;
+    void getBookRepository().getBookmarks(bookId).then(setBookmarks);
+  };
+
+  useEffect(reloadBookmarks, [bookId]);
+
+  // Voice model download progress lives in a toast (bottom-right) instead of
+  // an inline banner, so it keeps notifying even if the user closes the
+  // voices panel or navigates away while the model downloads in the background.
+  useEffect(() => {
+    if (tts.status !== "downloading-voice") {
+      dismissToast(VOICE_DOWNLOAD_TOAST_ID);
+      return;
+    }
+    const voiceLabel = tts.voices.find((v) => v.id === tts.downloadingVoiceId)?.label;
+    showToast(
+      <ToastProgress
+        detail={voiceLabel}
+        percent={tts.downloadProgress != null ? tts.downloadProgress * 100 : null}
+        title="Descargando voz…"
+      />,
+      { id: VOICE_DOWNLOAD_TOAST_ID, dismissible: false },
+    );
+  }, [
+    tts.status,
+    tts.downloadingVoiceId,
+    tts.downloadProgress,
+    tts.voices,
+    showToast,
+    dismissToast,
+  ]);
+
+  // When the user switches voice mid-reading, re-synthesize the current
+  // document with the new voice and resume from the exact same chunk/offset.
+  // Earlier chunks are re-synthesized in the background thanks to the worker's
+  // reorder queue; playback starts as soon as the resume chunk arrives.
+  useEffect(() => {
+    if (lastVoiceIdRef.current === null) {
+      lastVoiceIdRef.current = tts.voiceId;
+      return;
+    }
+    if (lastVoiceIdRef.current === tts.voiceId) return;
+    if (chunkIds.length === 0 || chunkTexts.length === 0) {
+      lastVoiceIdRef.current = tts.voiceId;
+      return;
+    }
+
+    const resumeIndex = Math.min(tts.activeChunkIndex, chunkTexts.length - 1);
+    const chunkStart = tts.chunkStartTimes[resumeIndex] ?? 0;
+    const offsetLocal = Math.max(0, tts.currentPosition - chunkStart);
+    const resumeFrom = { chunkIndex: resumeIndex, offsetLocal };
+    lastVoiceIdRef.current = tts.voiceId;
+    void tts.synthesize(allText, bookId ?? undefined, chunkIds, chunkTexts, resumeFrom);
+    // This effect must only re-synthesize when the voice changes; the resume
+    // position comes from the current tts snapshot at the moment of the change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tts.voiceId, tts.status]);
 
   // Repository chunk texts — used directly as synthesis chunks so they align
   // 1:1 with chunk IDs. This makes progress saving/resume trivial: the queue's
@@ -87,7 +165,7 @@ export function ReadingPage() {
   // chunks (1:1 mapping for progress). Pass bookId + chunkIds so the worker
   // can check the OPFS cache and skip synthesis for already-generated audio.
   const handleRead = () => {
-    if (chunks.length === 0) return;
+    if (chunks.length === 0 || tts.status === "downloading-voice") return;
     tts.reset();
 
     // Find the resume chunk from saved progress.
@@ -104,29 +182,19 @@ export function ReadingPage() {
   };
 
   const menuItems: MenuItem[] = [
-    { label: "Marcadores", icon: BookmarkIcon },
+    { label: "Marcadores", icon: BookmarkIcon, onSelect: () => setPanel("bookmarks") },
     {
       label: "Música/sonido ambiente",
       icon: MusicIcon,
       onSelect: () => setPanel("audio"),
+      badge: ambient.isPlaying,
     },
-    { label: "Programar descanso", icon: SleepIcon },
+    // { label: "Programar descanso", icon: SleepIcon },
   ];
-
-  // No book selected — show empty state
-  if (!bookId) {
-    return (
-      <main className="bg-bg-tertiary flex min-h-screen min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
-        <p className="font-h2 text-text-secondary">
-          No se seleccionó ningún documento. Vuelve a la biblioteca para elegir uno.
-        </p>
-      </main>
-    );
-  }
 
   if (loading) {
     return (
-      <main className="bg-bg-tertiary flex min-h-screen min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
+      <main className="bg-bg-tertiary flex min-h-screen min-h-[100dvh] min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
         <p className="font-h2 text-text-secondary">Cargando documento…</p>
       </main>
     );
@@ -134,14 +202,16 @@ export function ReadingPage() {
 
   if (chunks.length === 0) {
     return (
-      <main className="bg-bg-tertiary flex min-h-screen min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
+      <main className="bg-bg-tertiary flex min-h-screen min-h-[100dvh] min-w-0 flex-1 flex-col items-center justify-center gap-4 p-4 text-center">
         <p className="font-h2 text-text-secondary">Este documento no tiene contenido para leer.</p>
       </main>
     );
   }
 
-  const format = chunks[0]?.capituloId != null ? "TXT" : "TXT";
-  const estimate = `Est. ${Math.ceil(chunks.length * 0.5)} min`;
+  // bookId is guaranteed to be a string once we reach the main render.
+  const currentBookId = bookId as string;
+
+  const format = bookFormat || "TXT";
   const voiceName = tts.voices.find((v) => v.id === tts.voiceId)?.label ?? "Voz";
 
   // Show saved progress until the resume seek has actually fired and real
@@ -161,6 +231,75 @@ export function ReadingPage() {
   const displayChunkIndex = showSaved ? savedChunkIndex : tts.activeChunkIndex;
   const currentCapituloId = chunks[displayChunkIndex]?.capituloId ?? null;
   const chapterTitle = capitulos.find((c) => c.indice === currentCapituloId)?.titulo ?? "";
+
+  const getChunkPreview = (chunkId: string) =>
+    (chunkTexts[chunkIds.indexOf(chunkId)] ?? "").replace(/\s+/g, " ").trim();
+
+  const handleAddBookmark = () => {
+    const chunkId = chunkIds[displayChunkIndex];
+    if (!chunkId) return;
+    const chunkStart = tts.chunkStartTimes[displayChunkIndex] ?? displayPosition;
+    const offsetLocal = showSaved
+      ? (progress?.offsetLocal ?? 0)
+      : Math.max(0, displayPosition - chunkStart);
+    const bookmark: Bookmark = {
+      id: crypto.randomUUID(),
+      bookId: currentBookId,
+      chunkId,
+      offsetSegundos: displayPosition,
+      offsetLocal,
+      nombre: null,
+      createdAt: Date.now(),
+    };
+    void getBookRepository()
+      .saveBookmark(bookmark)
+      .then(() => {
+        reloadBookmarks();
+        const toastId = showToast(
+          <div>
+            <p className="font-p font-medium">Se guardó un marcador</p>
+            <p className="font-label truncate text-text-secondary">{getChunkPreview(chunkId)}</p>
+            <button
+              className="font-p mt-2 cursor-pointer font-medium rounded-lg px-3 py-2 bg-text-primary hover:bg-text-secondary text-text-inverse"
+              onClick={() => {
+                clearTimeout(timeout);
+                dismissToast(toastId);
+                setNoteBookmark(bookmark);
+              }}
+              type="button"
+            >
+              Agregar nota
+            </button>
+          </div>,
+        );
+        const timeout = setTimeout(() => dismissToast(toastId), 4000);
+      });
+  };
+
+  const handlePlayBookmark = (bookmark: Bookmark) => {
+    const index = chunkIds.indexOf(bookmark.chunkId);
+    if (index === -1) return;
+    const offsetLocal = bookmark.offsetLocal ?? 0;
+    if (isIdle) {
+      void tts.synthesize(allText, currentBookId, chunkIds, chunkTexts, {
+        chunkIndex: index,
+        offsetLocal,
+      });
+    } else {
+      tts.seekToChunk(index, offsetLocal);
+      tts.play();
+    }
+  };
+
+  const handleDeleteBookmark = (bookmarkId: string) => {
+    void getBookRepository().deleteBookmark(currentBookId, bookmarkId).then(reloadBookmarks);
+  };
+
+  const handleSaveNote = (bookmark: Bookmark, note: string) => {
+    void getBookRepository()
+      .saveBookmark({ ...bookmark, nombre: note || null })
+      .then(reloadBookmarks);
+  };
 
   // Scope the karaoke text to the chunks of the current chapter only, instead
   // of rendering the whole book — chunks are stored contiguously per chapter
@@ -208,6 +347,7 @@ export function ReadingPage() {
     .reduce((sum, text) => sum + text.length, 0);
   const secondsPerChar = charsSynthesized > 0 ? tts.duration / charsSynthesized : 0;
   const estimatedTotalDuration = isFullySynthesized ? tts.duration : secondsPerChar * totalChars;
+  const estimate = `Est. ${formatDuration(estimatedTotalDuration > 0 ? estimatedTotalDuration : totalChars / ESTIMATED_CHARS_PER_SEC)}`;
 
   const displayDuration = estimatedTotalDuration > 0 ? estimatedTotalDuration : tts.duration;
   const displayProgressPercent =
@@ -218,14 +358,25 @@ export function ReadingPage() {
         : 0;
 
   return (
-    <main className="flex min-h-screen min-w-0 flex-1 flex-col bg-bg-tertiary">
+    <main className="flex h-[100dvh] min-w-0 flex-1 flex-col overflow-hidden bg-bg-tertiary">
       {/* Menú fijo, visible incluso cuando sube el panel de texto. */}
       <div className="fixed top-4 right-4 z-50">
-        <BookMenu className={MENU_BUTTON} extraItems={menuItems} iconClassName="size-6" />
+        <BookMenu
+          bookId={currentBookId}
+          bookTitle={bookTitle}
+          className={MENU_BUTTON}
+          extraItems={menuItems}
+          iconClassName="size-6"
+          onDeleted={() => {
+            tts.reset();
+            navigate("/");
+          }}
+          onRenamed={setBookTitle}
+        />
       </div>
 
       {/* Escenario: título + esfera detrás; el panel de texto sube y los tapa. */}
-      <div className="relative min-h-[26rem] flex-1 overflow-hidden">
+      <div className="relative min-h-0 md:min-h-[26rem] flex-1 overflow-hidden">
         <div className="absolute inset-0 flex flex-col p-4 pt-16 md:p-8 md:pt-8">
           <ReadingHeader title={bookTitle || "Documento"} format={format} estimate={estimate} />
           <div className="grid flex-1 place-items-center py-4">
@@ -256,7 +407,7 @@ export function ReadingPage() {
           </button>
 
           <section
-            className="flex min-h-0 flex-1 flex-col gap-4 bg-bg-primary p-4 md:p-8"
+            className="flex min-h-0 flex-1 flex-col gap-4 bg-bg-primary px-4 pt-4 md:px-8 md:pt-8"
             inert={!expanded}
           >
             <div className="mx-auto flex min-h-0 w-full max-w-[1100px] flex-1 flex-col">
@@ -274,7 +425,7 @@ export function ReadingPage() {
                 title={bookTitle || "Documento"}
               />
 
-              <div className="min-h-0 flex-1 mt-4">
+              <div className="min-h-0 flex-1 mt-4 max-w-[900px] mx-auto">
                 <KaraokeText
                   chunkStartTimes={chapterChunkStartTimes}
                   chunks={chapterKaraokeChunks}
@@ -293,21 +444,6 @@ export function ReadingPage() {
         </div>
       </div>
 
-      {/* TTS synthesis progress overlay */}
-      {(tts.status === "downloading-voice" ||
-        tts.status === "synthesizing" ||
-        tts.status === "buffering") && (
-        <div className="bg-bg-secondary border-t border-border-primary px-4 py-2 text-center">
-          <p className="font-p text-text-secondary">
-            {tts.status === "downloading-voice"
-              ? `Descargando voz… ${tts.downloadProgress != null ? `${Math.round(tts.downloadProgress * 100)}%` : ""}`
-              : tts.status === "buffering"
-                ? `Preparando audio… ${tts.chunksDone}/${tts.chunksTotal} fragmentos`
-                : `Sintetizando… ${tts.chunksDone}/${tts.chunksTotal}`}
-          </p>
-        </div>
-      )}
-
       {/* TTS error */}
       {tts.status === "error" && (
         <div className="bg-action-error/10 border-t border-action-error px-4 py-2 text-center">
@@ -325,9 +461,13 @@ export function ReadingPage() {
       <PlaybackControls
         duration={formatDuration(displayDuration)}
         isPlaying={tts.status === "playing"}
+        onBookmark={handleAddBookmark}
+        onForward={tts.forward}
         onOpenVoices={() => setPanel("voices")}
+        onRewind={tts.rewind}
         onSpeedChange={tts.setSpeed}
         onToggle={() => {
+          if (tts.status === "downloading-voice") return;
           if (isIdle) {
             handleRead();
           } else if (tts.status === "playing" || tts.status === "buffering") {
@@ -336,18 +476,42 @@ export function ReadingPage() {
             tts.play();
           }
         }}
+        onVolumeChange={tts.setVolume}
         position={formatDuration(displayPosition)}
         progressPercent={displayProgressPercent}
         speed={tts.speed}
+        voiceId={tts.voiceId}
         voiceName={voiceName}
+        volume={tts.volume}
       />
 
       <VoicesPanel
+        downloadedIds={tts.downloadedVoiceIds}
+        downloadingId={tts.downloadingVoiceId}
         onClose={() => setPanel(null)}
+        onSelect={tts.downloadAndSetVoice}
         open={panel === "voices"}
         selectedId={tts.voiceId}
+        voices={tts.voices}
       />
-      <AudioPanel onClose={() => setPanel(null)} open={panel === "audio"} />
+      <AudioPanel ambient={ambient} onClose={() => setPanel(null)} open={panel === "audio"} />
+      <BookmarksPanel
+        bookmarks={bookmarks}
+        getChunkPreview={getChunkPreview}
+        onClose={() => setPanel(null)}
+        onDelete={handleDeleteBookmark}
+        onEditNote={setNoteBookmark}
+        onPlay={handlePlayBookmark}
+        open={panel === "bookmarks"}
+      />
+      <BookmarkNoteDialog
+        currentNote={noteBookmark?.nombre ?? ""}
+        onClose={() => setNoteBookmark(null)}
+        onConfirm={(note) => {
+          if (noteBookmark) handleSaveNote(noteBookmark, note);
+        }}
+        open={noteBookmark !== null}
+      />
     </main>
   );
 }

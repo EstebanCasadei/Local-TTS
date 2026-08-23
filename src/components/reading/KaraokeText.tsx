@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { ESTIMATED_CHARS_PER_SEC } from "../../lib/audio";
 
 type WordToken = {
   text: string;
@@ -40,15 +41,11 @@ type KaraokeTextProps = {
   secondsPerChar?: number;
 };
 
-const WORD_CLASS = "cursor-default rounded-[2px] transition-colors duration-100";
+const WORD_CLASS = "cursor-pointer rounded-[2px] transition-colors duration-100";
 const ACTIVE_WORD_CLASS = "rounded-[4px] bg-action-primary/40 text-text-primary";
 const ACTIVE_CHUNK_CLASS = "bg-action-primary/10 text-text-primary";
 const PAST_CLASS = "text-text-secondary";
 const FUTURE_CLASS = "text-text-primary";
-
-/** Rough Piper Spanish synthesis rate, used to estimate a chunk's spoken
- * duration when its real one isn't known yet (see buildTokens). */
-const ESTIMATED_CHARS_PER_SEC = 15;
 
 /** Splits text into words and whitespace tokens. */
 function splitWords(text: string): string[] {
@@ -120,14 +117,19 @@ function buildTokens(
     }
 
     if (i < chunks.length - 1) {
-      tokens.push({
-        text: "\n",
-        isSpace: true,
-        chunkIndex: -1,
-        start: 0,
-        end: 0,
-        localOffset: 0,
-      });
+      const next = chunks[i + 1];
+      const hasTrailingSpace = /\s$/.test(chunk);
+      const hasLeadingSpace = /^\s/.test(next);
+      if (!hasTrailingSpace && !hasLeadingSpace) {
+        tokens.push({
+          text: " ",
+          isSpace: true,
+          chunkIndex: -1,
+          start: 0,
+          end: 0,
+          localOffset: 0,
+        });
+      }
     }
   }
 
@@ -233,7 +235,7 @@ export function KaraokeText({
   }, [activeIndex, chunks.length, duration, initialChunkIndex, position, tokens]);
 
   return (
-    <div className="h-full min-h-0 flex-1 overflow-y-auto">
+    <div className="brand-scrollbar relative h-full min-h-0 flex-1 overflow-y-auto pr-1">
       <p className="font-p whitespace-pre-line leading-relaxed">
         {tokens.map((token, index) => {
           if (token.isSpace) {
@@ -284,6 +286,10 @@ export function KaraokeText({
           );
         })}
       </p>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none sticky bottom-0 w-full h-16 bg-gradient-to-t from-bg-primary to-transparent"
+      />
     </div>
   );
 }

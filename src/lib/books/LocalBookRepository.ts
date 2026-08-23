@@ -113,6 +113,17 @@ export class LocalBookRepository implements BookRepository {
     this.notifyChunks(bookId, []);
   }
 
+  async renameBook(bookId: string, title: string): Promise<void> {
+    const book = await this.store.getBook(bookId);
+    if (!book) return;
+    await this.store.setBook({
+      ...book,
+      titulo: title.trim() || book.titulo,
+      fechaModificacion: Date.now(),
+    });
+    await this.notifyBooks();
+  }
+
   async saveChunks(bookId: string, chunks: Chunk[]): Promise<void> {
     for (const chunk of chunks) await this.store.setChunk(chunk);
     const all = await this.store.getChunks(bookId);

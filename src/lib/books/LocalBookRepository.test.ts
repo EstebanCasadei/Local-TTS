@@ -112,6 +112,23 @@ describe("LocalBookRepository", () => {
     expect(seen.at(-1)!).toEqual([]);
   });
 
+  it("renameBook updates the title and bumps fechaModificacion", async () => {
+    const repo = new LocalBookRepository(memoryStore());
+    const seen: Book[][] = [];
+    repo.onBooks((books) => seen.push(books));
+    await repo.saveBook(makeBook("b1", { titulo: "Old title", fechaModificacion: 1000 }));
+    await repo.renameBook("b1", "New title");
+    const book = await repo.getBook("b1");
+    expect(book?.titulo).toBe("New title");
+    expect(book?.fechaModificacion).toBeGreaterThan(1000);
+    expect(seen.at(-1)![0]?.titulo).toBe("New title");
+  });
+
+  it("renameBook does nothing for an unknown id", async () => {
+    const repo = new LocalBookRepository(memoryStore());
+    await expect(repo.renameBook("missing", "Anything")).resolves.toBeUndefined();
+  });
+
   it("saveChunks stores and onChunks returns them ordered", async () => {
     const repo = new LocalBookRepository(memoryStore());
     const seen: Chunk[][] = [];

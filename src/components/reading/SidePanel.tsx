@@ -8,10 +8,12 @@ type SidePanelProps = {
   children: ReactNode;
   /** Pinned to the bottom, above the panel edge (volume slider, notes...). */
   footer?: ReactNode;
+  /** Small brand dot next to the title — e.g. "algo sigue sonando de fondo". */
+  titleBadge?: boolean;
 };
 
 /** Slides in from the right edge; full width on mobile, fixed column on md+. */
-export function SidePanel({ title, open, onClose, children, footer }: SidePanelProps) {
+export function SidePanel({ title, open, onClose, children, footer, titleBadge }: SidePanelProps) {
   const ref = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -28,14 +30,19 @@ export function SidePanel({ title, open, onClose, children, footer }: SidePanelP
     <aside
       aria-hidden={!open}
       aria-label={title}
-      className={`shadow-large fixed top-2 right-0 bottom-2 z-[1000] flex h-[calc(100%-1rem)] w-full flex-col border border-r-0 border-border-primary rounded-l-2xl bg-bg-primary transition-transform duration-200 md:w-[19rem] ${
+      className={`shadow-large fixed top-2 right-0 bottom-2 z-[1000] flex h-[calc(100%-1rem)] h-[calc(100dvh-1rem)] w-full flex-col border border-r-0 border-border-primary rounded-l-2xl bg-bg-primary transition-transform duration-200 md:w-[19rem] ${
         open ? "translate-x-0" : "translate-x-full"
       }`}
       inert={!open}
       ref={ref}
     >
       <header className="flex items-center justify-between gap-2 border-b border-border-primary p-4">
-        <h3 className="font-h3 font-bold">{title}</h3>
+        <h3 className="font-h3 flex items-center gap-2 font-bold">
+          {title}
+          {titleBadge && (
+            <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-brand-primary" />
+          )}
+        </h3>
         <button
           aria-label={`Cerrar ${title}`}
           className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-full text-text-primary transition duration-150 hover:bg-bg-tertiary active:scale-95"

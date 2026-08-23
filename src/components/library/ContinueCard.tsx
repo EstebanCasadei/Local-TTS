@@ -1,14 +1,9 @@
 import { Link } from "react-router";
 import type { Book } from "../../types/book.ts";
 import { useBookProgress } from "../../hooks/useBookProgress.ts";
+import { formatDuration } from "../../lib/audio.ts";
 import { BookMenu } from "./BookMenu.tsx";
 import { BookMeta, PlayIcon, SyncBadge } from "./shared.tsx";
-
-function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
 
 export function ContinueCard({ book }: { book: Book }) {
   const { progress } = useBookProgress(book.id);
@@ -28,17 +23,17 @@ export function ContinueCard({ book }: { book: Book }) {
           className="min-w-0 transition duration-150 hover:text-text-primary-hover"
           to={`/reading?book=${book.id}`}
         >
-          <h3 className="font-h3 font-semibold">{book.titulo}</h3>
+          <h3 className="font-h3 font-semibold truncate">{book.titulo}</h3>
           <BookMeta book={book} progress={progress} />
         </Link>
-        <BookMenu />
+        <BookMenu bookId={book.id} bookTitle={book.titulo} />
       </div>
 
       <div className="flex flex-col gap-2">
         <div className="font-label flex justify-between text-text-primary">
           <span>{percent}% completado</span>
           <span>
-            {progress ? `Última vez: ${formatTime(progress.offsetSegundos)}` : "00:00 / 00:00"}
+            {progress ? `Última vez: ${formatDuration(progress.offsetSegundos)}` : "00:00 / 00:00"}
           </span>
         </div>
         <div

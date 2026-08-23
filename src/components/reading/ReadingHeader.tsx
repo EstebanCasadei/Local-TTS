@@ -2,7 +2,6 @@ function truncateText(text: string, maxLength = 50): string {
   if (text.length <= maxLength) return text;
   return `${text.slice(0, maxLength)}…`;
 }
-
 type ReadingHeaderProps = {
   title: string;
   format: string;
@@ -26,7 +25,11 @@ export function ReadingHeader({
 }: ReadingHeaderProps) {
   return (
     <header className="text-center md:text-left border-b border-border-primary pb-4 z-10">
-      <h1 className="font-h1 font-bold mb-2">{title}</h1>
+      <h1
+        className={`font-h1 font-bold pb-1 truncate ${showChapter ? "text-left" : "text-center"}`}
+      >
+        {title}
+      </h1>
       {showChapter ? (
         <div className="font-p mt-1 flex flex-col items-center gap-1 text-text-secondary md:flex-row md:items-center md:justify-between md:gap-2">
           <span>
@@ -38,7 +41,7 @@ export function ReadingHeader({
               {chapters.length > 1 ? (
                 <select
                   aria-label="Capítulo"
-                  className="max-w-[60vw] cursor-pointer truncate rounded-[8px] pr-1 text-text-secondary md:max-w-80"
+                  className="max-w-[30vw] cursor-pointer truncate rounded-[8px] pr-1 text-text-secondary md:max-w-40"
                   onChange={(event) => onSelectChapter?.(Number(event.target.value))}
                   value={activeChapter ?? chapters[0]?.indice}
                 >
@@ -60,7 +63,7 @@ export function ReadingHeader({
           )}
         </div>
       ) : (
-        <p className="font-p mt-1 text-text-secondary">
+        <p className="font-p mt-1 text-center text-text-secondary ">
           {format} • {estimate}
         </p>
       )}

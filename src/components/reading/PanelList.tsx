@@ -1,7 +1,7 @@
 import CheckCircleFilledIcon from "../../icons/CheckCircleFilledIcon.svg?react";
 import CheckCircleIcon from "../../icons/CheckCircleIcon.svg?react";
 import CloudDownIcon from "../../icons/CloudDownIcon.svg?react";
-import { VoiceSphere } from "./VoiceSphere.tsx";
+import { DEFAULT_VOICE_ICON, voiceIconSrc } from "../../lib/voiceIcons.ts";
 
 /** selected = en uso · ready = descargada · download = hay que descargarla */
 export type PanelItemStatus = "selected" | "ready" | "download";
@@ -43,7 +43,15 @@ export function PanelList({
               onClick={() => onSelect?.(item.id)}
               type="button"
             >
-              <VoiceSphere className="size-8" />
+              <img
+                alt=""
+                className="size-8 shrink-0 rounded-full bg-bg-tertiary object-cover"
+                onError={(event) => {
+                  event.currentTarget.onerror = null;
+                  event.currentTarget.src = DEFAULT_VOICE_ICON;
+                }}
+                src={voiceIconSrc(item.id)}
+              />
               <span className="min-w-0 flex-1">
                 <span className="font-p block truncate font-medium">{item.name}</span>
                 <span className="font-label block truncate text-text-secondary">{item.detail}</span>

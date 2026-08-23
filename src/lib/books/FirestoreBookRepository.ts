@@ -27,6 +27,9 @@ export class FirestoreBookRepository implements BookRepository {
   deleteBook(_bookId: string): Promise<void> {
     return Promise.resolve(this.notImplemented("deleteBook"));
   }
+  renameBook(_bookId: string, _title: string): Promise<void> {
+    return Promise.resolve(this.notImplemented("renameBook"));
+  }
   saveChunks(_bookId: string, _chunks: Chunk[]): Promise<void> {
     return Promise.resolve(this.notImplemented("saveChunks"));
   }

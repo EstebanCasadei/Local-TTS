@@ -28,11 +28,13 @@ export interface ChunkOptions {
 export function splitSentences(text: string, locale = "es"): string[] {
   if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
     const segmenter = new Intl.Segmenter(locale, { granularity: "sentence" });
-    return Array.from(segmenter.segment(text), (s) => s.segment.trim()).filter(Boolean);
+    return Array.from(segmenter.segment(text), (s) =>
+      s.segment.replace(/[ \t\u00a0]+$/g, ""),
+    ).filter(Boolean);
   }
   return text
-    .split(/(?<=[.!?…])\s+/)
-    .map((s) => s.trim())
+    .split(/(?<=[.!?…])(?=\s)/)
+    .map((s) => s.replace(/^[ \t\u00a0]+|[ \t\u00a0]+$/g, ""))
     .filter(Boolean);
 }
 
@@ -84,18 +86,32 @@ export function chunkText(text: string, options: ChunkOptions = {}): string[] {
   if (!normalized) return [];
 
   const paragraphs = normalized
-    .split(/\n{1,}/)
+    .split(/\n{2,}/)
     .map((p) => p.trim())
     .filter(Boolean);
 
   const chunks: string[] = [];
 
-  for (const paragraph of paragraphs) {
+  for (let p = 0; p < paragraphs.length; p++) {
+    const paragraph = paragraphs[p];
+    const isLastParagraph = p === paragraphs.length - 1;
+
     if (granularity === "clausulas") {
       for (const sentence of splitSentences(paragraph, locale)) {
         for (const clause of splitClauses(sentence, maxChars)) {
+          // A clause that's only whitespace/newlines has nothing for Piper to
+          // synthesize. Fold it into the previous chunk instead of pushing it
+          // as its own chunk — this preserves the line break for KaraokeText
+          // without producing an unspeakable chunk.
+          if (!clause.trim()) {
+            if (chunks.length) chunks[chunks.length - 1] += clause;
+            continue;
+          }
           chunks.push(clause);
         }
+      }
+      if (!isLastParagraph && chunks.length) {
+        chunks[chunks.length - 1] += "\n\n";
       }
       continue;
     }
@@ -111,6 +127,14 @@ export function chunkText(text: string, options: ChunkOptions = {}): string[] {
       const units = sentence.length > maxChars ? splitClauses(sentence, maxChars) : [sentence];
 
       for (const unit of units) {
+        // A unit that's only whitespace/newlines has nothing to synthesize —
+        // fold it into whichever chunk it borders instead of letting it
+        // become (or end up alone in) `current`.
+        if (!unit.trim()) {
+          if (current) current += unit;
+          else if (chunks.length) chunks[chunks.length - 1] += unit;
+          continue;
+        }
         if (!current) {
           current = unit;
         } else if (current.length + 1 + unit.length <= maxChars) {
@@ -122,6 +146,9 @@ export function chunkText(text: string, options: ChunkOptions = {}): string[] {
       }
     }
 
+    if (current && !isLastParagraph) {
+      current += "\n\n";
+    }
     flush();
   }
 

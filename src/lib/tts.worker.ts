@@ -25,6 +25,7 @@
 import * as tts from "@mintplex-labs/piper-tts-web";
 import { audioLocal, readChunk, saveChunk, textHash } from "./audioStore";
 import { reorderQueue } from "./reorderQueue";
+import { downloadVoice } from "./voiceDownload";
 
 // In a worker, self is DedicatedWorkerGlobalScope with postMessage(message, transfer?).
 // The tsconfig includes DOM (not WebWorker) for the app, so we cast to the worker
@@ -77,18 +78,31 @@ async function getSession(voiceId: string): Promise<tts.TtsSession> {
 
   // Reset the internal singleton so the new voice's model loads fresh.
   (tts.TtsSession as unknown as { _instance: unknown })._instance = null;
-  session = await tts.TtsSession.create({
-    voiceId,
-    wasmPaths: WASM_PATHS,
-    progress: (progress) =>
-      post({
-        type: "download-progress",
-        id: activeId,
-        loaded: progress.loaded,
-        total: progress.total,
-      }),
-    logger: (text: string) => console.debug("[tts-worker]", text),
-  });
+  try {
+    session = await tts.TtsSession.create({
+      voiceId,
+      wasmPaths: WASM_PATHS,
+      progress: (progress) =>
+        post({
+          type: "download-progress",
+          id: activeId,
+          loaded: progress.loaded,
+          total: progress.total,
+        }),
+      logger: () => {},
+    });
+  } catch (err) {
+    // The library's static _instance is left pointing at the failed session
+    // (see its constructor — it's set before init() resolves), and whatever
+    // caused the failure (corrupted/partial OPFS cache, e.g.) would keep
+    // failing forever otherwise. Purge the cached model so the next attempt
+    // re-downloads instead of getting stuck reusing the same broken file.
+    session = null;
+    sessionVoiceId = null;
+    (tts.TtsSession as unknown as { _instance: unknown })._instance = null;
+    await tts.remove(voiceId).catch(() => {});
+    throw err;
+  }
   sessionVoiceId = voiceId;
   return session;
 }
@@ -110,7 +124,7 @@ async function synthesizeChunk(voiceId: string, text: string): Promise<ArrayBuff
 }
 
 async function handleDownload(id: number, voiceId: string): Promise<void> {
-  await tts.download(voiceId, (progress) => {
+  await downloadVoice(voiceId, (progress) => {
     post({
       type: "download-progress",
       id,
@@ -136,9 +150,9 @@ async function handleSynthesize(
   // Chunks that have cached audio with a matching hash are loaded from disk
   // instead of running Piper — instant replay on subsequent listens.
   const useCache = bookId && chunkIds && chunkIds.length === chunks.length;
-  const cachedAudio = useCache ? await audioLocal(bookId!) : new Map<string, string>();
+  const cachedAudio = useCache ? await audioLocal(bookId!, voiceId) : new Map<string, string>();
   const hashes: (string | null)[] = useCache
-    ? await Promise.all(chunks.map((text) => textHash(text)))
+    ? await Promise.all(chunks.map((text) => textHash(text.trim(), voiceId)))
     : chunks.map(() => null);
 
   // Determine which chunks need synthesis vs. are cached.
@@ -149,7 +163,7 @@ async function handleSynthesize(
     const chunkId = chunkIds?.[i];
     if (useCache && hash && chunkId && cachedAudio.get(chunkId) === hash) {
       // Cache hit — load from OPFS, no Piper inference needed.
-      const wav = await readChunk(bookId!, chunkId, hash);
+      const wav = await readChunk(bookId!, chunkId, hash, voiceId);
       if (wav) {
         post({ type: "chunk-done", id, index: i, total: chunks.length, wav, cached: true }, [wav]);
         continue;
@@ -170,6 +184,14 @@ async function handleSynthesize(
     return;
   }
 
+  // Ensure the voice model is downloaded (streamed + cached in OPFS, with a
+  // timeout and a progress fallback — see voiceDownload.ts) before loading
+  // it into a Piper session. No-ops quickly if already cached, e.g. because
+  // the user pre-downloaded it via the voices panel.
+  await downloadVoice(voiceId, (progress) => {
+    post({ type: "download-progress", id, loaded: progress.loaded, total: progress.total });
+  });
+
   // Load the model once before the loop so the first chunk's progress is real.
   await getSession(voiceId);
   post({ type: "voice-ready", id, voiceId });
@@ -185,13 +207,11 @@ async function handleSynthesize(
     // mid-init).
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const wav = await synthesizeChunk(voiceId, chunks[index]);
+        const wav = await synthesizeChunk(voiceId, chunks[index].trim());
 
         // Save to OPFS cache if we have a bookId + chunkId + hash.
         if (useCache && hashes[index] && chunkIds?.[index]) {
-          await saveChunk(bookId!, chunkIds[index], hashes[index]!, wav).catch((err) => {
-            console.warn(`[tts-worker] failed to cache chunk ${index + 1}:`, err);
-          });
+          await saveChunk(bookId!, chunkIds[index], hashes[index]!, wav, voiceId).catch(() => {});
         }
 
         // Transfer the buffer (postMessage detaches it) to avoid copying.
@@ -200,9 +220,6 @@ async function handleSynthesize(
         break;
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
-        if (attempt === 0) {
-          console.warn(`[tts-worker] chunk ${index + 1} failed, retrying:`, lastError.message);
-        }
       }
     }
 
@@ -262,7 +279,6 @@ self.addEventListener("message", (event: MessageEvent) => {
       else if (type === "synthesize") await handleSynthesize(id, voiceId, chunks, bookId, chunkIds);
       else throw new Error(`Unknown message type: ${type}`);
     } catch (err) {
-      console.error("[tts-worker]", err);
       post({
         type: "error",
         id,

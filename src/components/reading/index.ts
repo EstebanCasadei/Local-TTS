@@ -1,4 +1,6 @@
 export { AudioPanel } from "./AudioPanel.tsx";
+export { BookmarkNoteDialog } from "./BookmarkNoteDialog.tsx";
+export { BookmarksPanel } from "./BookmarksPanel.tsx";
 export { KaraokeText } from "./KaraokeText.tsx";
 export { PlaybackControls } from "./PlaybackControls.tsx";
 export { ReadingHeader } from "./ReadingHeader.tsx";

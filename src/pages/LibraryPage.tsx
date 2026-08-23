@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { BookRow, ContinueCard, SearchIcon } from "../components/library";
+import { useDocumentTitle } from "../hooks/useDocumentTitle.ts";
 import { useLibrary } from "../hooks/useLibrary.ts";
 import { extractDocument, ACCEPT_ATTRIBUTE, type ExtractProgress } from "../lib/extract";
 import { ERROR_MESSAGES, ExtractionError } from "../lib/extract/types";
@@ -14,6 +15,7 @@ type UploadState =
   | { status: "error"; message: string };
 
 export function LibraryPage() {
+  useDocumentTitle("Biblioteca");
   const { books, loading } = useLibrary();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -88,7 +90,7 @@ export function LibraryPage() {
   };
 
   return (
-    <main className="bg-bg-primary flex min-h-screen min-w-0 flex-1 flex-col overflow-hidden p-4 pt-16 md:p-8 md:pt-8">
+    <main className="bg-bg-primary flex min-h-screen min-h-[100dvh] min-w-0 flex-1 flex-col overflow-hidden p-4 pt-16 md:p-8 md:pt-8">
       <input
         accept={ACCEPT_ATTRIBUTE}
         className="hidden"

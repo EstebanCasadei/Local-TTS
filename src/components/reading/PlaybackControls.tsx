@@ -1,38 +1,48 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import BookmarkIcon from "../../icons/BookmarkIcon.svg?react";
 import ForwardIcon from "../../icons/ForwardIcon.svg?react";
 import PauseIcon from "../../icons/PauseIcon.svg?react";
 import PlayIcon from "../../icons/PlayIcon.svg?react";
 import RewindIcon from "../../icons/RewindIcon.svg?react";
 import VolumeIcon from "../../icons/VolumeIcon.svg?react";
-import { VoiceSphere } from "./VoiceSphere.tsx";
+import { DEFAULT_VOICE_ICON, voiceIconSrc } from "../../lib/voiceIcons.ts";
 
 // ponytail: progreso maquetado — los tiempos reales llegan con el audio (#6).
 type PlaybackControlsProps = {
   isPlaying: boolean;
   speed: number;
+  voiceId: string;
   voiceName: string;
   position?: string;
   duration?: string;
   progressPercent?: number;
+  volume?: number;
   onToggle: () => void;
   onSpeedChange: (speed: number) => void;
+  onVolumeChange?: (volume: number) => void;
   onOpenVoices: () => void;
+  onRewind?: () => void;
+  onForward?: () => void;
+  onBookmark?: () => void;
 };
 
 export function PlaybackControls({
   isPlaying,
   speed,
+  voiceId,
   voiceName,
   position = "00:00",
   duration = "00:00",
   progressPercent = 0,
+  volume = 1,
   onToggle,
   onSpeedChange,
+  onVolumeChange,
   onOpenVoices,
+  onRewind,
+  onForward,
+  onBookmark,
 }: PlaybackControlsProps) {
-  const [volume, setVolume] = useState(45);
-
   return (
     <div className="flex flex-col gap-3 border-t border-border-primary bg-bg-tertiary px-4 py-3">
       <div className="mx-auto max-w-[1100px] w-full">
@@ -55,11 +65,14 @@ export function PlaybackControls({
         </div>
 
         <div className="grid grid-cols-1 items-center gap-2 md:grid-cols-[1fr_auto_1fr]">
-          <VolumeMenu onChange={setVolume} value={volume} />
+          <VolumeMenu
+            onChange={(v) => onVolumeChange?.(v / 100)}
+            value={Math.round(volume * 100)}
+          />
 
           <div className="col-start-1 flex items-center justify-center gap-2 md:col-start-2">
             <SpeedMenu onChange={onSpeedChange} speed={speed} />
-            <IconButton label="Retroceder 15 segundos">
+            <IconButton label="Retroceder 15 segundos" onClick={onRewind}>
               <RewindIcon className="size-5" />
             </IconButton>
             <button
@@ -70,10 +83,10 @@ export function PlaybackControls({
             >
               {isPlaying ? <PauseIcon className="size-6" /> : <PlayIcon className="size-6" />}
             </button>
-            <IconButton label="Adelantar 15 segundos">
+            <IconButton label="Adelantar 15 segundos" onClick={onForward}>
               <ForwardIcon className="size-5" />
             </IconButton>
-            <IconButton label="Guardar marcador">
+            <IconButton label="Guardar marcador" onClick={onBookmark}>
               <BookmarkIcon className="size-5" />
             </IconButton>
           </div>
@@ -83,7 +96,15 @@ export function PlaybackControls({
             onClick={onOpenVoices}
             type="button"
           >
-            <VoiceSphere className="size-6" />
+            <img
+              alt=""
+              className="size-6 shrink-0 rounded-full bg-bg-tertiary object-cover"
+              onError={(event) => {
+                event.currentTarget.onerror = null;
+                event.currentTarget.src = DEFAULT_VOICE_ICON;
+              }}
+              src={voiceIconSrc(voiceId)}
+            />
             {voiceName}
           </button>
         </div>
@@ -183,15 +204,18 @@ function IconButton({
   children,
   label,
   className = "grid",
+  onClick,
 }: {
   children: React.ReactNode;
   label: string;
   className?: string;
+  onClick?: () => void;
 }) {
   return (
     <button
       aria-label={label}
       className={`size-9 shrink-0 cursor-pointer place-items-center rounded-full text-text-primary transition duration-150 hover:bg-bg-tertiary active:scale-95 ${className}`}
+      onClick={onClick}
       type="button"
     >
       {children}

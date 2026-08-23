@@ -10,14 +10,18 @@ export interface Voice {
   id: string;
   label: string;
   accent: string;
+  size: string;
 }
 
 // Piper Spanish voices (from the PoC + Figma accent selection).
 // The library downloads these by ID from HuggingFace on first use.
+// Sizes are the ONNX model file sizes at HuggingFace, rounded for display.
 export const VOICES: Voice[] = [
-  { id: "es_ES-davefx-medium", label: "Davefx", accent: "España" },
-  { id: "es_MX-claude-high", label: "Claude", accent: "México" },
-  { id: "es_ES-mls_10246-low", label: "MLS 10246", accent: "España" },
+  { id: "es_ES-davefx-medium", label: "Davefx", accent: "España", size: "63 MB" },
+  { id: "es_MX-claude-high", label: "Claude", accent: "México", size: "63 MB" },
+  { id: "es_ES-carlfm-x_low", label: "Carlfm", accent: "España", size: "28 MB" },
+  { id: "es_ES-sharvard-medium", label: "Sharvard", accent: "España", size: "77 MB" },
+  { id: "es_MX-ald-medium", label: "Ald", accent: "México", size: "63 MB" },
 ];
 
 export interface DownloadProgress {
@@ -63,6 +67,30 @@ function getSharedWorker(): Worker {
     sharedWorker = new Worker(new URL("./tts.worker.ts", import.meta.url), { type: "module" });
   }
   return sharedWorker;
+}
+
+// Requests still waiting on a response from the shared worker, keyed by
+// request id. Used by restartSharedWorker() to fail them loudly instead of
+// leaving their promises hanging forever once the worker they were waiting
+// on is gone.
+const pendingRejects = new Map<number, (err: Error) => void>();
+
+/**
+ * Terminates the shared worker and rejects any requests still in flight
+ * against it; the next request spawns a fresh one. Reusing the same worker
+ * across a voice switch doesn't reliably free the previous model's WASM
+ * memory (onnxruntime-web/Piper phonemizer) — on low-end devices, having two
+ * ~60MB models resident at once can exhaust it and break inference for every
+ * voice until the tab is reloaded. Terminating lets the browser reclaim that
+ * memory outright.
+ */
+function restartSharedWorker(): void {
+  sharedWorker?.terminate();
+  sharedWorker = null;
+  for (const reject of pendingRejects.values()) {
+    reject(new Error("TTS worker restarted"));
+  }
+  pendingRejects.clear();
 }
 
 // Request IDs must be unique across the shared worker's whole message stream,
@@ -115,7 +143,13 @@ export class TtsClient {
       const cleanup = () => {
         w.removeEventListener("message", onWorkerMessage);
         w.removeEventListener("error", onWorkerError);
+        pendingRejects.delete(id);
       };
+
+      pendingRejects.set(id, (err) => {
+        cleanup();
+        reject(err);
+      });
 
       w.addEventListener("message", onWorkerMessage);
       w.addEventListener("error", onWorkerError);
@@ -186,6 +220,16 @@ export class TtsClient {
   /** Tells the worker to stop after the current chunk. */
   cancel(): void {
     this.getWorker().postMessage({ type: "cancel" });
+  }
+
+  /**
+   * Terminates and respawns the shared worker so a previous voice's WASM
+   * memory is fully released before loading a new one. Call `cancel()`
+   * first if a synthesis is in flight — this rejects it immediately rather
+   * than waiting for it to wind down.
+   */
+  restartWorker(): void {
+    restartSharedWorker();
   }
 
   /**

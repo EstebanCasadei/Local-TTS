@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useDocumentTitle } from "../hooks/useDocumentTitle.ts";
 import { useTts } from "../hooks/useTts.ts";
 
 // Tracer bullet page (#5): text input → voice select → Read → Piper TTS → playback.
@@ -23,6 +24,7 @@ const SAMPLE_TEXT =
   "Solo el tiempo lo dirá, pero una cosa es cierta: el cambio ya empezó.";
 
 export function TracerPage() {
+  useDocumentTitle("Tracer");
   const tts = useTts();
   const [text, setText] = useState(SAMPLE_TEXT);
 
@@ -43,7 +45,7 @@ export function TracerPage() {
         : 0;
 
   return (
-    <main className="flex min-h-screen flex-col items-center gap-6 overflow-y-auto bg-gray-950 p-4 pt-8 text-gray-100 md:justify-center">
+    <main className="flex min-h-screen min-h-[100dvh] flex-col items-center gap-6 overflow-y-auto bg-gray-950 p-4 pt-8 text-gray-100 md:justify-center">
       <header className="w-full max-w-md text-center">
         <h1 className="text-2xl font-bold">Tracer TTS</h1>
         <p className="mt-1 text-sm text-gray-400">
@@ -132,7 +134,9 @@ export function TracerPage() {
           {tts.status === "downloading-voice" && (
             <div className="text-center">
               <p className="mb-2 text-sm text-gray-400">
-                Descargando voz… {tts.downloadProgress != null ? `${progressPercent}%` : ""}
+                {tts.downloadProgress != null
+                  ? `Descargando voz… ${progressPercent}%`
+                  : "Conectando…"}
               </p>
               {tts.downloadProgress != null && (
                 <div className="h-2 overflow-hidden rounded-full bg-gray-800">
