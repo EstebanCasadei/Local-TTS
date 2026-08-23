@@ -21,6 +21,11 @@ export interface TtsState {
   voiceId: string;
   voices: typeof VOICES;
   speed: number;
+  volume: number;
+  /** IDs of voices already downloaded in this session (or previous ones). */
+  downloadedVoiceIds: string[];
+  /** Voice currently being downloaded, if any. */
+  downloadingVoiceId: string | null;
   downloadProgress: number | null;
   chunksDone: number;
   chunksTotal: number;
@@ -38,6 +43,10 @@ export interface TtsState {
 export interface UseTts extends TtsState {
   setVoice: (voiceId: string) => void;
   setSpeed: (speed: number) => void;
+  setVolume: (volume: number) => void;
+  rewind: () => void;
+  forward: () => void;
+  downloadAndSetVoice: (voiceId: string) => void;
   /** If preChunked is provided, uses those strings directly instead of re-splitting text. */
   synthesize: (
     text: string,
@@ -57,6 +66,8 @@ export interface UseTts extends TtsState {
 }
 
 const SPEED_STORAGE_KEY = "local-tts:speed";
+const VOLUME_STORAGE_KEY = "local-tts:volume";
+const DOWNLOADED_VOICES_KEY = "local-tts:downloaded-voices";
 
 function loadSavedSpeed(): number {
   const saved = localStorage.getItem(SPEED_STORAGE_KEY);
@@ -65,11 +76,34 @@ function loadSavedSpeed(): number {
   return Number.isFinite(speed) && speed >= 0.5 && speed <= 3 ? speed : 1;
 }
 
+function loadSavedVolume(): number {
+  const saved = localStorage.getItem(VOLUME_STORAGE_KEY);
+  if (!saved) return 1;
+  const volume = Number.parseFloat(saved);
+  return Number.isFinite(volume) && volume >= 0 && volume <= 1 ? volume : 1;
+}
+
+function loadDownloadedVoiceIds(): string[] {
+  try {
+    const saved = localStorage.getItem(DOWNLOADED_VOICES_KEY);
+    const parsed = saved ? (JSON.parse(saved) as unknown) : null;
+    if (Array.isArray(parsed) && parsed.every((id) => typeof id === "string")) {
+      return parsed;
+    }
+  } catch {
+    // ignore malformed localStorage
+  }
+  return [];
+}
+
 const IDLE_STATE: TtsState = {
   status: "idle",
   voiceId: VOICES[0].id,
   voices: VOICES,
   speed: 1,
+  volume: 1,
+  downloadedVoiceIds: [],
+  downloadingVoiceId: null,
   downloadProgress: null,
   chunksDone: 0,
   chunksTotal: 0,
@@ -86,12 +120,16 @@ export function useTts(): UseTts {
   const clientRef = useRef<TtsClient | null>(null);
   const queueRef = useRef<PlaybackQueue | null>(null);
   const speedRef = useRef(1);
+  const volumeRef = useRef(1);
+  const isDownloadingVoiceRef = useRef(false);
 
-  // Initialize speed from localStorage so the user's preference persists
-  // across sessions.
+  // Initialize speed/volume/downloaded-voices from localStorage so the user's
+  // preferences persist across sessions.
   const [state, setState] = useState<TtsState>(() => ({
     ...IDLE_STATE,
     speed: loadSavedSpeed(),
+    volume: loadSavedVolume(),
+    downloadedVoiceIds: loadDownloadedVoiceIds(),
   }));
 
   // Create the TTS client once. Its worker is shared across mounts (see
@@ -110,15 +148,24 @@ export function useTts(): UseTts {
     setState((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  // Sync speedRef so the queue callback always has the latest speed.
+  // Sync speedRef/volumeRef so the queue callback always has the latest values.
   useEffect(() => {
     speedRef.current = state.speed;
   }, [state.speed]);
+  useEffect(() => {
+    volumeRef.current = state.volume;
+  }, [state.volume]);
 
   const setVoice = useCallback((voiceId: string) => {
     queueRef.current?.stop();
     queueRef.current = null;
-    setState((prev) => ({ ...IDLE_STATE, voiceId, speed: prev.speed }));
+    setState((prev) => ({
+      ...IDLE_STATE,
+      voiceId,
+      speed: prev.speed,
+      volume: prev.volume,
+      downloadedVoiceIds: prev.downloadedVoiceIds,
+    }));
   }, []);
 
   const setSpeed = useCallback((speed: number) => {
@@ -129,6 +176,74 @@ export function useTts(): UseTts {
     // Live speed change: re-seek to current position with the new rate.
     void queueRef.current?.setRate(clamped);
   }, []);
+
+  const setVolume = useCallback((volume: number) => {
+    const clamped = Math.max(0, Math.min(1, volume));
+    setState((prev) => ({ ...prev, volume: clamped }));
+    // Persist to localStorage so the preference survives across sessions.
+    localStorage.setItem(VOLUME_STORAGE_KEY, String(clamped));
+    // Apply immediately if a queue is already playing.
+    queueRef.current?.setVolume(clamped);
+  }, []);
+
+  const downloadAndSetVoice = useCallback(
+    (voiceId: string) => {
+      const client = clientRef.current;
+      if (!client || isDownloadingVoiceRef.current) return;
+
+      if (voiceId === state.voiceId) return;
+      if (state.downloadedVoiceIds.includes(voiceId)) {
+        // Already downloaded — just switch the active voice and let the
+        // caller re-synthesize the current document.
+        queueRef.current?.stop();
+        queueRef.current = null;
+        setState((prev) => ({ ...prev, voiceId }));
+        return;
+      }
+
+      isDownloadingVoiceRef.current = true;
+      // Pause playback while the new model downloads.
+      void queueRef.current?.pause();
+      setState((prev) => ({
+        ...prev,
+        status: "downloading-voice",
+        downloadingVoiceId: voiceId,
+        downloadProgress: null,
+      }));
+
+      client
+        .downloadVoice(voiceId, (p) => {
+          update({
+            downloadProgress: p.total > 0 ? p.loaded / p.total : null,
+          });
+        })
+        .then(() => {
+          setState((prev) => {
+            const ids = Array.from(new Set([...prev.downloadedVoiceIds, voiceId]));
+            localStorage.setItem(DOWNLOADED_VOICES_KEY, JSON.stringify(ids));
+            // Switch voice without resetting chunk state — the reading page
+            // will re-synthesize the current document and resume from where
+            // the user left off.
+            return { ...prev, voiceId, downloadedVoiceIds: ids, status: "idle" };
+          });
+          queueRef.current?.stop();
+          queueRef.current = null;
+        })
+        .catch((err) => {
+          setState((prev) => ({
+            ...prev,
+            status: "error",
+            error: err instanceof Error ? err.message : String(err),
+            downloadingVoiceId: null,
+            downloadProgress: null,
+          }));
+        })
+        .finally(() => {
+          isDownloadingVoiceRef.current = false;
+        });
+    },
+    [state.downloadedVoiceIds, state.voiceId, update],
+  );
 
   const synthesize = useCallback(
     async (
@@ -167,6 +282,13 @@ export function useTts(): UseTts {
         activeChunkIndex: 0,
       });
 
+      // If resuming mid-document, tell the worker to synthesize the target
+      // chunk first. Playback will start as soon as that chunk arrives, while
+      // earlier chunks are re-synthesized in the background.
+      if (resumeFrom) {
+        client.prioritize(resumeFrom.chunkIndex);
+      }
+
       // The queue is created lazily after the first chunk decodes, because
       // decodeWav() may close and recreate the AudioContext at a different
       // sample rate (Piper outputs 16kHz or 22.05kHz depending on the voice).
@@ -175,13 +297,6 @@ export function useTts(): UseTts {
       let queue: PlaybackQueue | null = null;
       let firstChunkPlayed = false;
       const decodePromises: Promise<void>[] = [];
-      // Indices whose decode+push has completed. Chunks decode asynchronously
-      // and can finish out of order, so "this chunk's index >= resumeFrom" is
-      // not enough to know every earlier chunk's buffer is actually in the
-      // queue yet — seekToChunk needs all of them to compute real chunk start
-      // times (see playbackQueue.ts's seekToChunk). Track completions
-      // explicitly and only resume once the whole 0..resumeFrom range is in.
-      const pushedIndices = new Set<number>();
 
       const ensureQueue = () => {
         if (queue) return queue;
@@ -203,10 +318,11 @@ export function useTts(): UseTts {
           },
         });
         queue.setPlan(chunks.length);
-        // Apply the user's saved speed preference to the queue — it defaults
-        // to 1, but the user may have set a different speed before clicking play.
-        // Use speedRef (always current) instead of state.speed (stale in closure).
+        // Apply the user's saved speed/volume preferences to the queue — it
+        // defaults to 1, but the user may have changed these before clicking play.
+        // Use refs (always current) instead of state values (stale in closure).
         queue.setRate(speedRef.current);
+        queue.setVolume(volumeRef.current);
         queueRef.current = queue;
         return queue;
       };
@@ -223,7 +339,14 @@ export function useTts(): UseTts {
               });
             },
             onVoiceReady: () => {
-              update({ status: "synthesizing", downloadProgress: null });
+              // The voice is now loaded in the worker/OPFS, so mark it as
+              // downloaded for the UI icons.
+              setState((prev) => ({
+                ...prev,
+                status: "synthesizing",
+                downloadProgress: null,
+                downloadedVoiceIds: Array.from(new Set([...prev.downloadedVoiceIds, prev.voiceId])),
+              }));
             },
             onChunk: ({ wav, index }) => {
               // Decode and push to the queue immediately — the queue schedules
@@ -232,36 +355,19 @@ export function useTts(): UseTts {
               const p = decodeWav(wav).then((buffer) => {
                 const q = ensureQueue();
                 q.push(index, buffer);
-                pushedIndices.add(index);
                 setState((prev) => ({
                   ...prev,
                   chunksDone: prev.chunksDone + 1,
                 }));
 
-                // Start playback once the right buffers have arrived:
-                // - If resuming, wait until every chunk from 0 through the
-                //   resume chunk has been pushed (decode order isn't
-                //   guaranteed, so this can't just check the current index),
-                //   then seekToChunk. seekToChunk needs all of those buffers
-                //   to compute real chunk start times for the karaoke.
-                // - If not resuming, play on the first chunk (streaming).
+                // Start playback as soon as the first usable chunk arrives:
+                // - If resuming, start from the resume chunk/offset.
+                // - Otherwise, play from the first chunk (streaming).
                 if (!firstChunkPlayed) {
-                  if (resumeFrom) {
-                    let allPriorPushed = true;
-                    for (let i = 0; i <= resumeFrom.chunkIndex; i++) {
-                      if (!pushedIndices.has(i)) {
-                        allPriorPushed = false;
-                        break;
-                      }
-                    }
-                    if (allPriorPushed) {
-                      firstChunkPlayed = true;
-                      // seekToChunk with offsetLocal gives word-level resume:
-                      // playback starts from the exact position within the chunk.
-                      void q.seekToChunk(resumeFrom.chunkIndex, resumeFrom.offsetLocal);
-                    }
-                    // Otherwise some earlier chunk hasn't arrived yet — wait.
-                  } else {
+                  if (resumeFrom && index === resumeFrom.chunkIndex) {
+                    firstChunkPlayed = true;
+                    void q.seekToChunk(resumeFrom.chunkIndex, resumeFrom.offsetLocal);
+                  } else if (!resumeFrom) {
                     firstChunkPlayed = true;
                     void q.play();
                   }
@@ -325,6 +431,18 @@ export function useTts(): UseTts {
     queueRef.current?.seekToChunk(index, localTime);
   }, []);
 
+  const rewind = useCallback(() => {
+    const q = queueRef.current;
+    if (!q) return;
+    void q.seek(Math.max(0, q.position - 15));
+  }, []);
+
+  const forward = useCallback(() => {
+    const q = queueRef.current;
+    if (!q) return;
+    void q.seek(Math.min(q.duration, q.position + 15));
+  }, []);
+
   const cancel = useCallback(() => {
     clientRef.current?.cancel();
     queueRef.current?.stop();
@@ -346,7 +464,13 @@ export function useTts(): UseTts {
     clientRef.current?.cancel();
     queueRef.current?.stop();
     queueRef.current = null;
-    setState((prev) => ({ ...IDLE_STATE, voiceId: prev.voiceId, speed: prev.speed }));
+    setState((prev) => ({
+      ...IDLE_STATE,
+      voiceId: prev.voiceId,
+      speed: prev.speed,
+      volume: prev.volume,
+      downloadedVoiceIds: prev.downloadedVoiceIds,
+    }));
   }, []);
 
   const formatPosition = useCallback(
@@ -359,6 +483,10 @@ export function useTts(): UseTts {
     ...state,
     setVoice,
     setSpeed,
+    setVolume,
+    rewind,
+    forward,
+    downloadAndSetVoice,
     synthesize,
     play,
     pause,

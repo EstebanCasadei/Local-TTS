@@ -36,6 +36,7 @@ export function ReadingPage() {
   const [expanded, setExpanded] = useState(false);
   const [bookTitle, setBookTitle] = useState<string>("");
   const progressRef = useRef(progress);
+  const lastVoiceIdRef = useRef<string | null>(null);
 
   // Keep progressRef in sync so handleRead always sees the latest saved progress.
   progressRef.current = progress;
@@ -49,6 +50,32 @@ export function ReadingPage() {
         if (book) setBookTitle(book.titulo);
       });
   }, [bookId]);
+
+  // When the user switches voice mid-reading, re-synthesize the current
+  // document with the new voice and resume from the exact same chunk/offset.
+  // Earlier chunks are re-synthesized in the background thanks to the worker's
+  // reorder queue; playback starts as soon as the resume chunk arrives.
+  useEffect(() => {
+    if (lastVoiceIdRef.current === null) {
+      lastVoiceIdRef.current = tts.voiceId;
+      return;
+    }
+    if (lastVoiceIdRef.current === tts.voiceId) return;
+    if (chunkIds.length === 0 || chunkTexts.length === 0) {
+      lastVoiceIdRef.current = tts.voiceId;
+      return;
+    }
+
+    const resumeIndex = Math.min(tts.activeChunkIndex, chunkTexts.length - 1);
+    const chunkStart = tts.chunkStartTimes[resumeIndex] ?? 0;
+    const offsetLocal = Math.max(0, tts.currentPosition - chunkStart);
+    const resumeFrom = { chunkIndex: resumeIndex, offsetLocal };
+    lastVoiceIdRef.current = tts.voiceId;
+    void tts.synthesize(allText, bookId ?? undefined, chunkIds, chunkTexts, resumeFrom);
+    // This effect must only re-synthesize when the voice changes; the resume
+    // position comes from the current tts snapshot at the moment of the change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tts.voiceId, tts.status]);
 
   // Repository chunk texts — used directly as synthesis chunks so they align
   // 1:1 with chunk IDs. This makes progress saving/resume trivial: the queue's
@@ -87,7 +114,7 @@ export function ReadingPage() {
   // chunks (1:1 mapping for progress). Pass bookId + chunkIds so the worker
   // can check the OPFS cache and skip synthesis for already-generated audio.
   const handleRead = () => {
-    if (chunks.length === 0) return;
+    if (chunks.length === 0 || tts.status === "downloading-voice") return;
     tts.reset();
 
     // Find the resume chunk from saved progress.
@@ -325,9 +352,12 @@ export function ReadingPage() {
       <PlaybackControls
         duration={formatDuration(displayDuration)}
         isPlaying={tts.status === "playing"}
+        onForward={tts.forward}
         onOpenVoices={() => setPanel("voices")}
+        onRewind={tts.rewind}
         onSpeedChange={tts.setSpeed}
         onToggle={() => {
+          if (tts.status === "downloading-voice") return;
           if (isIdle) {
             handleRead();
           } else if (tts.status === "playing" || tts.status === "buffering") {
@@ -336,16 +366,23 @@ export function ReadingPage() {
             tts.play();
           }
         }}
+        onVolumeChange={tts.setVolume}
         position={formatDuration(displayPosition)}
         progressPercent={displayProgressPercent}
         speed={tts.speed}
         voiceName={voiceName}
+        volume={tts.volume}
       />
 
       <VoicesPanel
+        downloadProgress={tts.downloadProgress}
+        downloadedIds={tts.downloadedVoiceIds}
+        downloadingId={tts.downloadingVoiceId}
         onClose={() => setPanel(null)}
+        onSelect={tts.downloadAndSetVoice}
         open={panel === "voices"}
         selectedId={tts.voiceId}
+        voices={tts.voices}
       />
       <AudioPanel onClose={() => setPanel(null)} open={panel === "audio"} />
     </main>
