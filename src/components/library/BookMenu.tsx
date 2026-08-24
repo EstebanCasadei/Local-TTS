@@ -91,6 +91,7 @@ export function BookMenu({
   const handleDelete = async () => {
     await getBookRepository().deleteBook(bookId);
     await deleteBookAudio(bookId).catch(() => {});
+    setDeleteOpen(false);
     onDeleted?.();
   };
 
