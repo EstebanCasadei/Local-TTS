@@ -113,6 +113,15 @@ export function PlaybackControls({
   );
 }
 
+// Speeds aren't evenly spaced (0.25 steps up to 1.5x, then a 0.5 jump to 2x),
+// so the picker is index-based over this list rather than a plain numeric
+// range input.
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+function speedLabel(speed: number): string {
+  return Number.isInteger(speed) ? `${speed}` : speed.toFixed(2).replace(/0$/, "");
+}
+
 /** Dropdown que se abre hacia arriba con un slider de velocidades fijas. */
 function SpeedMenu({ speed, onChange }: { speed: number; onChange: (speed: number) => void }) {
   const ref = useRef<HTMLDetailsElement>(null);
@@ -127,10 +136,17 @@ function SpeedMenu({ speed, onChange }: { speed: number; onChange: (speed: numbe
     return () => document.removeEventListener("pointerdown", closeOnOutside);
   }, []);
 
+  // Snap to the closest allowed speed in case a stale/out-of-set value (e.g.
+  // an older saved preference) ever makes it here.
+  const activeIndex = SPEEDS.reduce(
+    (closest, s, i) => (Math.abs(s - speed) < Math.abs(SPEEDS[closest] - speed) ? i : closest),
+    0,
+  );
+
   return (
     <details className="relative" ref={ref}>
       <summary className="font-p w-10 cursor-pointer list-none rounded-[8px] py-1 text-center font-medium transition duration-150 hover:bg-bg-tertiary active:scale-95">
-        {speed.toFixed(1)}x
+        {speedLabel(SPEEDS[activeIndex])}x
       </summary>
       <div className="absolute bottom-full left-1/2 z-10 mb-2 w-56 -translate-x-1/2 rounded-[8px] border border-border-primary bg-bg-secondary p-3 shadow-large">
         <div className="font-p mb-2 flex items-center justify-between">
@@ -139,20 +155,17 @@ function SpeedMenu({ speed, onChange }: { speed: number; onChange: (speed: numbe
         <input
           aria-label="Velocidad de lectura"
           className="w-full accent-action-primary"
-          max={3}
-          min={0.5}
-          onChange={(event) => onChange(Number.parseFloat(event.target.value))}
-          step={0.5}
+          max={SPEEDS.length - 1}
+          min={0}
+          onChange={(event) => onChange(SPEEDS[Number.parseInt(event.target.value, 10)])}
+          step={1}
           type="range"
-          value={speed}
+          value={activeIndex}
         />
         <div className="font-label mt-1 flex justify-between text-text-secondary">
-          <span>0.5</span>
-          <span>1</span>
-          <span>1.5</span>
-          <span>2</span>
-          <span>2.5</span>
-          <span>3</span>
+          {SPEEDS.map((s) => (
+            <span key={s}>{speedLabel(s)}</span>
+          ))}
         </div>
       </div>
     </details>

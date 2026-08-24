@@ -26,6 +26,23 @@ function createMockCtx() {
       gain: { value: 1 },
       connect: () => {},
     }),
+    // Minimal createBuffer for timeStretchBuffer (only used when rate !== 1).
+    createBuffer: (numberOfChannels: number, length: number, sampleRate: number) => {
+      const data: Float32Array[] = Array.from(
+        { length: numberOfChannels },
+        () => new Float32Array(length),
+      );
+      return {
+        numberOfChannels,
+        length,
+        sampleRate,
+        duration: length / sampleRate,
+        getChannelData: (ch: number) => data[ch],
+        copyToChannel: (source: Float32Array, ch: number) => {
+          data[ch].set(source.subarray(0, length));
+        },
+      } as unknown as AudioBuffer;
+    },
     createBufferSource: () => {
       const source = {
         buffer: null as AudioBuffer | null,
@@ -99,6 +116,23 @@ describe("PlaybackQueue", () => {
     const ctx = createMockCtx();
     const queue = new PlaybackQueue(ctx as unknown as AudioContext);
     expect(queue.rateValue).toBe(1);
+  });
+
+  it("schedules a pitch-preserving (time-stretched) buffer instead of resampling when rate !== 1", async () => {
+    const ctx = createMockCtx();
+    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    queue.setPlan(1);
+    const original = createMockBuffer(2);
+    queue.push(0, original);
+    await queue.setRate(1.5);
+
+    await queue.play();
+
+    const source = ctx._sources.at(-1)!;
+    // playbackRate must stay at 1 — speed comes from the buffer's own
+    // (stretched) duration, not from resampling, so pitch stays the same.
+    expect(source.playbackRate.value).toBe(1);
+    expect(source.buffer).not.toBe(original);
   });
 
   it("close marks missing chunks as skipped", () => {

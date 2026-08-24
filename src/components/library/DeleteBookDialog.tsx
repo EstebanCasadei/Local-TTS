@@ -33,8 +33,8 @@ export function DeleteBookDialog({ open, title, onClose, onConfirm }: DeleteBook
       title="¿Eliminar documento?"
     >
       <p className="font-p text-text-primary">
-        Se eliminará <span className="font-semibold">{title}</span> y todo su progreso guardado.
-        Esta acción no se puede deshacer.
+        Se eliminará <span className="font-semibold truncate">{title}</span> y todo su progreso
+        guardado. Esta acción no se puede deshacer.
       </p>
     </Dialog>
   );

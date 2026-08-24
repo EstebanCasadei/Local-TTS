@@ -79,7 +79,7 @@ function loadSavedSpeed(): number {
   const saved = localStorage.getItem(SPEED_STORAGE_KEY);
   if (!saved) return 1;
   const speed = Number.parseFloat(saved);
-  return Number.isFinite(speed) && speed >= 0.5 && speed <= 3 ? speed : 1;
+  return Number.isFinite(speed) && speed >= 0.5 && speed <= 2 ? speed : 1;
 }
 
 function loadSavedVolume(): number {
@@ -183,7 +183,7 @@ export function useTts(): UseTts {
   }, []);
 
   const setSpeed = useCallback((speed: number) => {
-    const clamped = Math.max(0.5, Math.min(3, speed));
+    const clamped = Math.max(0.5, Math.min(2, speed));
     setState((prev) => ({ ...prev, speed: clamped }));
     // Persist to localStorage so the preference survives across sessions.
     localStorage.setItem(SPEED_STORAGE_KEY, String(clamped));

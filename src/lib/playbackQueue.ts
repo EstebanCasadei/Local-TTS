@@ -14,6 +14,7 @@
 //   positions — no re-seek needed on resume.
 
 import { GAP_MS } from "./audio";
+import { timeStretchBuffer } from "./timeStretch";
 
 export const PlaybackState = {
   IDLE: "idle",
@@ -52,6 +53,8 @@ export class PlaybackQueue {
 
   /** index → decoded AudioBuffer (kept for seek) */
   private buffers = new Map<number, AudioBuffer>();
+  /** `${index}:${rate}` → time-stretched buffer (see getPlaybackBuffer). */
+  private stretchedCache = new Map<string, AudioBuffer>();
   /** index → buffer not yet scheduled */
   private entries = new Map<number, AudioBuffer>();
   /** index → gap in seconds after this chunk */
@@ -275,7 +278,7 @@ export class PlaybackQueue {
    * the new rate and seek to that position — pump() schedules with the new rate.
    */
   async setRate(rate: number): Promise<void> {
-    const r = Math.max(0.5, Math.min(3, rate));
+    const r = Math.max(0.5, Math.min(2, rate));
     if (r === this.rate) return;
     // Capture position with the OLD rate before changing it.
     const currentPosition = this.position;
@@ -365,6 +368,18 @@ export class PlaybackQueue {
 
   // --- Internal scheduling ---
 
+  /** Time-stretched (pitch-preserving) buffer for this index at the current rate, cached. */
+  private getPlaybackBuffer(index: number, buffer: AudioBuffer): AudioBuffer {
+    if (this.rate === 1) return buffer;
+    const key = `${index}:${this.rate}`;
+    let stretched = this.stretchedCache.get(key);
+    if (!stretched) {
+      stretched = timeStretchBuffer(this.ctx, buffer, this.rate);
+      this.stretchedCache.set(key, stretched);
+    }
+    return stretched;
+  }
+
   private pump(): void {
     if (!this.wantPlay) return;
 
@@ -389,11 +404,16 @@ export class PlaybackQueue {
       const originalDuration = buffer.duration - localStart;
       const playDuration = originalDuration / this.rate;
 
+      // Play a time-stretched buffer at playbackRate 1 instead of the
+      // original buffer at playbackRate = this.rate — the latter resamples
+      // the audio, changing pitch along with speed. The stretched buffer's
+      // duration is already ~ original/rate, so localStart/duration map to
+      // it by the same factor.
+      const playbackBuffer = this.getPlaybackBuffer(index, buffer);
       const source = this.ctx.createBufferSource();
-      source.buffer = buffer;
-      source.playbackRate.value = this.rate;
+      source.buffer = playbackBuffer;
       source.connect(this.gain);
-      source.start(startTime, localStart, originalDuration);
+      source.start(startTime, localStart / this.rate, playDuration);
 
       const entry: ScheduledEntry = {
         index,

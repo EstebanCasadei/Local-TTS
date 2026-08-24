@@ -1,6 +1,7 @@
 import type { BookRepository } from "./BookRepository";
 import { BookRepositoryFacade } from "./facade";
 import { defaultBookStore } from "./LocalBookRepository";
+import { seedDefaultBookIfNeeded } from "./seedDefaultBook.ts";
 import { onFirstSync } from "../user";
 
 // Public API (frontend + #18):
@@ -30,6 +31,9 @@ export function getBookRepository(): BookRepositoryFacade {
     onFirstSync(() => {
       void _repo?.backfillFromLocal(defaultBookStore);
     });
+    // First-launch only: gives new users something to listen to right away
+    // without having to upload a document first.
+    void seedDefaultBookIfNeeded(_repo);
   }
   return _repo;
 }
