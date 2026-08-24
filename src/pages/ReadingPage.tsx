@@ -10,6 +10,7 @@ import {
   KaraokeText,
   PlaybackControls,
   ReadingHeader,
+  SleepTimerDialog,
   VoiceSphere,
   VoicesPanel,
 } from "../components/reading";
@@ -17,6 +18,7 @@ import { useAmbientAudio } from "../hooks/useAmbientAudio.ts";
 import { useBook } from "../hooks/useBook.ts";
 import { useDocumentTitle } from "../hooks/useDocumentTitle.ts";
 import { useProgress } from "../hooks/useProgress.ts";
+import { useSleepTimer } from "../hooks/useSleepTimer.ts";
 import { useTts } from "../hooks/useTts.ts";
 import { getBookRepository } from "../lib/books";
 import type { Bookmark } from "../types/book.ts";
@@ -24,7 +26,7 @@ import { ESTIMATED_CHARS_PER_SEC, formatDuration } from "../lib/audio";
 import BookmarkIcon from "../icons/BookmarkIcon.svg?react";
 import ChevronUpIcon from "../icons/ChevronUpIcon.svg?react";
 import MusicIcon from "../icons/MusicIcon.svg?react";
-// import SleepIcon from "../icons/SleepIcon.svg?react";
+import SleepIcon from "../icons/SleepIcon.svg?react";
 
 /** Alto de la pestaña con la flecha: es lo único que asoma con el panel cerrado. */
 const HANDLE_HEIGHT = "2.25rem";
@@ -45,6 +47,7 @@ export function ReadingPage() {
   const ambient = useAmbientAudio();
   const { show: showToast, dismiss: dismissToast } = useToast();
   const [panel, setPanel] = useState<"voices" | "audio" | "bookmarks" | null>(null);
+  const [sleepTimerOpen, setSleepTimerOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [bookTitle, setBookTitle] = useState<string>("");
   const [bookFormat, setBookFormat] = useState<string>("");
@@ -53,6 +56,10 @@ export function ReadingPage() {
   const [noteBookmark, setNoteBookmark] = useState<Bookmark | null>(null);
   const progressRef = useRef(progress);
   const lastVoiceIdRef = useRef<string | null>(null);
+  const sleepTimer = useSleepTimer(() => {
+    tts.pause();
+    ambient.pause();
+  });
 
   // Keep progressRef in sync so handleRead always sees the latest saved progress.
   progressRef.current = progress;
@@ -128,6 +135,15 @@ export function ReadingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tts.voiceId, tts.status]);
 
+  // "Pause at end of chapter" sleep timer: fires when playback moves into a
+  // different chapter than the one active when the timer was armed. Scoped
+  // to the timer itself (see useSleepTimer) so this no-ops for chapter
+  // changes the user makes manually while no such timer is set.
+  useEffect(() => {
+    sleepTimer.notifyChapterChanged(chunks[tts.activeChunkIndex]?.capituloId ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chunks, tts.activeChunkIndex, sleepTimer.notifyChapterChanged]);
+
   // Repository chunk texts — used directly as synthesis chunks so they align
   // 1:1 with chunk IDs. This makes progress saving/resume trivial: the queue's
   // activeChunkIndex maps directly to a repository chunk ID.
@@ -189,7 +205,12 @@ export function ReadingPage() {
       onSelect: () => setPanel("audio"),
       badge: ambient.isPlaying,
     },
-    // { label: "Programar descanso", icon: SleepIcon },
+    {
+      label: "Programar descanso",
+      icon: SleepIcon,
+      onSelect: () => setSleepTimerOpen(true),
+      badge: sleepTimer.active,
+    },
   ];
 
   if (loading) {
@@ -511,6 +532,17 @@ export function ReadingPage() {
           if (noteBookmark) handleSaveNote(noteBookmark, note);
         }}
         open={noteBookmark !== null}
+      />
+      <SleepTimerDialog
+        mode={sleepTimer.mode}
+        onCancel={sleepTimer.cancel}
+        onClose={() => setSleepTimerOpen(false)}
+        onSelectDuration={sleepTimer.startDuration}
+        onSelectEndOfChapter={() =>
+          sleepTimer.startEndOfChapter(chunks[tts.activeChunkIndex]?.capituloId ?? null)
+        }
+        open={sleepTimerOpen}
+        remainingMs={sleepTimer.remainingMs}
       />
     </main>
   );
