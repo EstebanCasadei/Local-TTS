@@ -43,6 +43,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
+        env:
+          # GlitchTip source-map upload (build-time only; never reaches the
+          # browser). vite.config.ts no-ops the upload if any are unset, so
+          # preview deploys still work before these secrets are configured.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         run: pnpm build
 
       - uses: FirebaseExtended/action-hosting-deploy@v0
