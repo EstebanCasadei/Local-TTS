@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import * as Sentry from "@sentry/react";
 import { BookRow, ContinueCard, SearchIcon } from "../components/library";
 import { useDocumentTitle } from "../hooks/useDocumentTitle.ts";
 import { useLibrary } from "../hooks/useLibrary.ts";
@@ -68,7 +69,10 @@ export function LibraryPage() {
         autor: doc.meta.author ?? null,
         formatoOriginal: doc.kind,
         totalChunks: chunks.length,
-        capitulos: doc.chapters.map((ch) => ({ indice: ch.index, titulo: ch.title })),
+        capitulos: doc.chapters.map((ch) => ({
+          indice: ch.index,
+          titulo: ch.title,
+        })),
         fechaCreacion: now,
         fechaModificacion: now,
       };
@@ -86,6 +90,13 @@ export function LibraryPage() {
             ? err.message
             : "Error desconocido";
       setUpload({ status: "error", message });
+
+      Sentry.captureException(err, {
+        tags: {
+          error_code: err instanceof ExtractionError ? err.code : "UNKNOWN",
+        },
+        extra: { fileName: file.name, fileType: file.type, fileSize: file.size },
+      });
     }
   };
 

@@ -38,8 +38,8 @@ export async function extractPdf(
   let pdf: PdfDocument;
   try {
     pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  } catch {
-    throw new ExtractionError(ErrorCode.CORRUPT_FILE, file.name);
+  } catch (err) {
+    throw new ExtractionError(ErrorCode.CORRUPT_FILE, file.name, err);
   }
 
   const blocks: TextBlock[] = [];
@@ -57,8 +57,8 @@ export async function extractPdf(
         .join("\n");
       blocks.push({ text, page: pageNumber });
     }
-  } catch {
-    throw new ExtractionError(ErrorCode.PARSE_ERROR, file.name);
+  } catch (err) {
+    throw new ExtractionError(ErrorCode.PARSE_ERROR, file.name, err);
   }
   onProgress?.({ phase: "pages", done: pdf.numPages, total: pdf.numPages });
 

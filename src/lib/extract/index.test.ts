@@ -83,3 +83,19 @@ describe("ACCEPT_ATTRIBUTE", () => {
     expect(ACCEPT_ATTRIBUTE).toContain(".epub");
   });
 });
+
+describe("ExtractionError", () => {
+  it("preserves the original error as cause", () => {
+    const original = new Error("pdfjs boom");
+    const error = new ExtractionError(ErrorCode.CORRUPT_FILE, "doc.pdf", original);
+    expect(error.code).toBe(ErrorCode.CORRUPT_FILE);
+    expect(error.cause).toBe(original);
+    expect(error.name).toBe("ExtractionError");
+  });
+
+  it("works without a cause", () => {
+    const error = new ExtractionError(ErrorCode.PARSE_ERROR, "doc.pdf");
+    expect(error.cause).toBeUndefined();
+    expect(error.code).toBe(ErrorCode.PARSE_ERROR);
+  });
+});
