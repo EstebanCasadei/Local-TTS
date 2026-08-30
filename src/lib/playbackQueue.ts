@@ -347,6 +347,22 @@ export class PlaybackQueue {
     }
   }
 
+  /**
+   * Releases decoded AudioBuffers for chunks well behind the current playback
+   * position to reduce peak memory. Keeps a window of recent chunks so backward
+   * seeks within ~10 chunks still work instantly; older chunks are evicted and
+   * would need re-decoding on seek. Call periodically during long playback.
+   */
+  releasePlayedBuffers(keepBehind = 10): void {
+    const current = this.currentIndex;
+    for (const index of this.buffers.keys()) {
+      if (index < current - keepBehind) {
+        this.buffers.delete(index);
+        this.stretchedCache.delete(`${index}:${this.rate}`);
+      }
+    }
+  }
+
   get stateValue(): PlaybackState {
     return this.state;
   }
@@ -473,6 +489,11 @@ export class PlaybackQueue {
       source.onended = () => {
         this.sources.delete(source);
         this.entries.delete(index);
+        // Free memory: evict the stretched buffer for this chunk. It can be
+        // regenerated on demand if the user seeks back. On iOS Safari, the
+        // cumulative memory from keeping all stretched buffers (one per chunk
+        // at rate != 1) can trigger UnknownError OOM.
+        this.stretchedCache.delete(`${index}:${this.rate}`);
       };
 
       startTime += playDuration + gap;

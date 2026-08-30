@@ -194,6 +194,14 @@ async function getSession(voiceId: string): Promise<tts.TtsSession> {
     sessionVoiceId = null;
     (tts.TtsSession as unknown as { _instance: unknown })._instance = null;
     await tts.remove(voiceId).catch(() => {});
+    // iOS Safari throws UnknownError ("out of memory") when the Piper model
+    // (~63MB) + ONNX runtime WASM exceed the per-tab memory limit. Translate
+    // this into a user-friendly message instead of the opaque browser string.
+    if (err instanceof DOMException && (err.name === "UnknownError" || err.code === 0)) {
+      throw new Error(
+        "El dispositivo no tiene suficiente memoria para síntesis de voz. Prueba en otro dispositivo o navegador.",
+      );
+    }
     throw err;
   }
   sessionVoiceId = voiceId;

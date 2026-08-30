@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as Sentry from "@sentry/react";
 import { TtsClient, VOICES, type DownloadProgress } from "../lib/ttsClient";
 import { chunkText } from "../lib/chunker";
-import { decodeWav, formatDuration } from "../lib/audio";
+import { decodeWav, formatDuration, closeDecodeContext } from "../lib/audio";
 import { PlaybackQueue, PlaybackState, type PlaybackSnapshot } from "../lib/playbackQueue";
 
 // The synthesis + playback lifecycle. With the streaming queue, playback starts
@@ -367,6 +367,8 @@ export function useTts(): UseTts {
               chunkStartTimes: snap.chunkStartTimes,
               activeChunkIndex: snap.index,
             }));
+            // Evict played buffers to reduce peak memory on iOS Safari.
+            queue?.releasePlayedBuffers();
           },
         });
         queue.setPlan(chunks.length);
@@ -469,6 +471,10 @@ export function useTts(): UseTts {
         // and close() would mark it as skipped (cutting off the last sentence).
         await Promise.all(decodePromises);
         if (stale()) return;
+
+        // All chunks decoded — free the decode AudioContext to reduce peak
+        // memory on iOS Safari. AudioBuffers are independent of the context.
+        closeDecodeContext();
 
         // Tell the queue no more chunks are coming.
         const q = queueRef.current as PlaybackQueue | null;

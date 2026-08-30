@@ -74,6 +74,17 @@ export async function decodeWav(wav: ArrayBuffer): Promise<AudioBuffer> {
 }
 
 /**
+ * Closes the shared decode AudioContext, freeing its memory. Safe to call
+ * after all chunks are decoded — the resulting AudioBuffers are independent
+ * of the context. The next decodeWav() call recreates the context on demand.
+ * On iOS Safari, this reduces peak memory during playback.
+ */
+export function closeDecodeContext(): void {
+  sharedContext?.close().catch(() => {});
+  sharedContext = null;
+}
+
+/**
  * Formats seconds as H:MM:SS when there are hours, otherwise MM:SS.
  */
 export function formatDuration(seconds: number): string {
