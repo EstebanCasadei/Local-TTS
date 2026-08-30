@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import * as Sentry from "@sentry/react";
 import { TtsClient, VOICES, type DownloadProgress } from "../lib/ttsClient";
 import { chunkText } from "../lib/chunker";
 import { decodeWav, formatDuration } from "../lib/audio";
@@ -406,28 +407,40 @@ export function useTts(): UseTts {
               // Decode and push to the queue immediately — the queue schedules
               // it on the AudioContext clock. If it's the first chunk, the
               // queue starts playing right away (streaming).
-              const p = decodeWav(wav).then((buffer) => {
-                if (stale()) return;
-                const q = ensureQueue();
-                q.push(index, buffer);
-                setState((prev) => ({
-                  ...prev,
-                  chunksDone: prev.chunksDone + 1,
-                }));
+              const p = decodeWav(wav)
+                .then((buffer) => {
+                  if (stale()) return;
+                  const q = ensureQueue();
+                  q.push(index, buffer);
+                  setState((prev) => ({
+                    ...prev,
+                    chunksDone: prev.chunksDone + 1,
+                  }));
 
-                // Start playback as soon as the first usable chunk arrives:
-                // - If resuming, start from the resume chunk/offset.
-                // - Otherwise, play from the first chunk (streaming).
-                if (!firstChunkPlayed) {
-                  if (resumeFrom && index === resumeFrom.chunkIndex) {
-                    firstChunkPlayed = true;
-                    void q.seekToChunk(resumeFrom.chunkIndex, resumeFrom.offsetLocal);
-                  } else if (!resumeFrom) {
-                    firstChunkPlayed = true;
-                    void q.play();
+                  // Start playback as soon as the first usable chunk arrives:
+                  // - If resuming, start from the resume chunk/offset.
+                  // - Otherwise, play from the first chunk (streaming).
+                  if (!firstChunkPlayed) {
+                    if (resumeFrom && index === resumeFrom.chunkIndex) {
+                      firstChunkPlayed = true;
+                      void q.seekToChunk(resumeFrom.chunkIndex, resumeFrom.offsetLocal);
+                    } else if (!resumeFrom) {
+                      firstChunkPlayed = true;
+                      void q.play();
+                    }
                   }
-                }
-              });
+                })
+                .catch((err) => {
+                  if (stale()) return;
+                  // decodeAudioData can fail on iOS Safari under memory pressure
+                  // (UnknownError) — skip the chunk so playback continues past it
+                  // instead of crashing the whole synthesis.
+                  queue?.markSkipped(index);
+                  Sentry.captureException(err, {
+                    tags: { error_source: "decode_wav" },
+                    extra: { chunkIndex: index },
+                  });
+                });
               decodePromises.push(p);
             },
             onChunkFailed: ({ index }) => {
@@ -465,6 +478,9 @@ export function useTts(): UseTts {
         update({
           status: "error",
           error: err instanceof Error ? err.message : String(err),
+        });
+        Sentry.captureException(err, {
+          tags: { error_source: "tts_synthesize" },
         });
       }
     },

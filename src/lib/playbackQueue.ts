@@ -332,12 +332,19 @@ export class PlaybackQueue {
    * component unmounts — NOT on pause (the context is needed to resume).
    * On iOS Safari, failing to close contexts leaks them and eventually
    * throws UnknownError (~4 context limit). Safe to call multiple times.
+   *
+   * close() is called in a finally so the context is always released even
+   * if stop() throws (e.g. ctx.resume() on a bad context) — otherwise the
+   * context leaks and we're back to the original bug.
    */
   async dispose(): Promise<void> {
-    await this.stop();
     if (this.disposed) return;
     this.disposed = true;
-    this.ctx.close().catch(() => {});
+    try {
+      await this.stop();
+    } finally {
+      this.ctx.close().catch(() => {});
+    }
   }
 
   get stateValue(): PlaybackState {
