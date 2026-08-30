@@ -18,7 +18,50 @@ import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 type PdfjsModule = typeof import("pdfjs-dist");
 type PdfDocument = Awaited<ReturnType<PdfjsModule["getDocument"]>["promise"]>;
+type PdfPage = Awaited<ReturnType<PdfDocument["getPage"]>>;
+type TextContent = Awaited<ReturnType<PdfPage["getTextContent"]>>;
 type OutlineNode = Awaited<ReturnType<PdfDocument["getOutline"]>>[number];
+
+/**
+ * Safari-compatible replacement for `page.getTextContent()`.
+ *
+ * pdfjs-dist@6.1.200's getTextContent() uses `for await (const value of
+ * readableStream)`, which requires `ReadableStream.prototype[Symbol.asyncIterator]`
+ * — not shipped in stable iOS Safari (added only in Safari 26.4 TP). On affected
+ * browsers the async iterator is undefined and it throws
+ * "TypeError: undefined is not a function". This replicates the exact
+ * aggregation pdfjs does internally, but via the reader API, which Safari
+ * supports. Upstream: mozilla/pdf.js#21557.
+ */
+export async function getTextContentCompat(page: PdfPage): Promise<TextContent> {
+  // XFA documents take a separate path; getTextContent handles them. The
+  // async-iterator bug doesn't affect XFA (no stream involved), so the native
+  // call is safe there.
+  const transport = page as unknown as { _transport?: { _htmlForXfa?: unknown } };
+  if (transport._transport?._htmlForXfa) {
+    return page.getTextContent();
+  }
+
+  const readableStream = page.streamTextContent();
+  const reader = readableStream.getReader();
+  const textContent: TextContent = {
+    items: [],
+    styles: Object.create(null),
+    lang: null,
+  };
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value.lang != null) textContent.lang ??= value.lang;
+      Object.assign(textContent.styles, value.styles);
+      (textContent.items as unknown[]).push(...value.items);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return textContent;
+}
 
 /**
  * Extracts text from a PDF, page by page, reporting progress via onProgress.
@@ -49,7 +92,7 @@ export async function extractPdf(
 
       const page = await pdf.getPage(pageNumber);
       const viewport = page.getViewport({ scale: 1 });
-      const content = await page.getTextContent();
+      const content = await getTextContentCompat(page);
       const items = content.items.filter((entry) => "str" in entry) as PdfTextItem[];
 
       const text = buildPageLines(items, viewport.width)
