@@ -22,6 +22,7 @@ function createMockCtx() {
       (ctx as { state: string }).state = "suspended";
       return Promise.resolve();
     },
+    close: () => Promise.resolve(),
     createGain: () => ({
       gain: { value: 1 },
       connect: () => {},
@@ -82,19 +83,19 @@ function createMockBuffer(duration: number): AudioBuffer {
 describe("PlaybackQueue", () => {
   it("starts in idle state", () => {
     const ctx = createMockCtx();
-    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });
     expect(queue.stateValue).toBe(PlaybackState.IDLE);
   });
 
   it("reports position 0 when nothing is playing", () => {
     const ctx = createMockCtx();
-    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });
     expect(queue.position).toBe(0);
   });
 
   it("accepts chunks via push and tracks count", () => {
     const ctx = createMockCtx();
-    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });
     queue.setPlan(3);
     queue.push(0, createMockBuffer(2));
     queue.push(1, createMockBuffer(3));
@@ -104,7 +105,7 @@ describe("PlaybackQueue", () => {
 
   it("reports currentIndex correctly", () => {
     const ctx = createMockCtx();
-    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });
     queue.setPlan(2);
     queue.push(0, createMockBuffer(2));
     queue.push(1, createMockBuffer(3));
@@ -114,13 +115,13 @@ describe("PlaybackQueue", () => {
 
   it("rate defaults to 1", () => {
     const ctx = createMockCtx();
-    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });
     expect(queue.rateValue).toBe(1);
   });
 
   it("schedules a pitch-preserving (time-stretched) buffer instead of resampling when rate !== 1", async () => {
     const ctx = createMockCtx();
-    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });
     queue.setPlan(1);
     const original = createMockBuffer(2);
     queue.push(0, original);
@@ -137,7 +138,7 @@ describe("PlaybackQueue", () => {
 
   it("close marks missing chunks as skipped", () => {
     const ctx = createMockCtx();
-    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });
     queue.setPlan(5);
     queue.push(0, createMockBuffer(2));
     queue.push(2, createMockBuffer(1));
@@ -151,7 +152,7 @@ describe("PlaybackQueue", () => {
 
   it("can seek after close() — close means no more chunks, not playback over", async () => {
     const ctx = createMockCtx();
-    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });
     queue.setPlan(3);
     queue.push(0, createMockBuffer(2));
     queue.push(1, createMockBuffer(3));
@@ -167,7 +168,7 @@ describe("PlaybackQueue", () => {
 
   it("can seekToChunk after close()", async () => {
     const ctx = createMockCtx();
-    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });
     queue.setPlan(3);
     queue.push(0, createMockBuffer(2));
     queue.push(1, createMockBuffer(3));
@@ -180,7 +181,7 @@ describe("PlaybackQueue", () => {
 
   it("clearScheduled preserves chunkStartTimes for already-played chunks", async () => {
     const ctx = createMockCtx();
-    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });
     queue.setPlan(3);
     queue.push(0, createMockBuffer(2));
     queue.push(1, createMockBuffer(3));
@@ -202,7 +203,7 @@ describe("PlaybackQueue", () => {
 
   it("seekToChunk backward re-schedules an already-played chunk", async () => {
     const ctx = createMockCtx();
-    const queue = new PlaybackQueue(ctx as unknown as AudioContext);
+    const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });
     queue.setPlan(3);
     queue.push(0, createMockBuffer(2));
     queue.push(1, createMockBuffer(3));

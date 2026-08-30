@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TtsClient, VOICES, type DownloadProgress } from "../lib/ttsClient";
 import { chunkText } from "../lib/chunker";
-import { decodeWav, getAudioContext, formatDuration } from "../lib/audio";
+import { decodeWav, formatDuration } from "../lib/audio";
 import { PlaybackQueue, PlaybackState, type PlaybackSnapshot } from "../lib/playbackQueue";
 
 // The synthesis + playback lifecycle. With the streaming queue, playback starts
@@ -153,7 +153,7 @@ export function useTts(): UseTts {
     clientRef.current = client;
     return () => {
       client.cancel();
-      queueRef.current?.stop();
+      queueRef.current?.dispose();
     };
   }, []);
 
@@ -170,7 +170,7 @@ export function useTts(): UseTts {
   }, [state.volume]);
 
   const setVoice = useCallback((voiceId: string) => {
-    queueRef.current?.stop();
+    queueRef.current?.dispose();
     queueRef.current = null;
     localStorage.setItem(VOICE_STORAGE_KEY, voiceId);
     setState((prev) => ({
@@ -224,7 +224,7 @@ export function useTts(): UseTts {
       if (state.downloadedVoiceIds.includes(voiceId)) {
         // Already downloaded — just switch the active voice and let the
         // caller re-synthesize the current document.
-        queueRef.current?.stop();
+        queueRef.current?.dispose();
         queueRef.current = null;
         localStorage.setItem(VOICE_STORAGE_KEY, voiceId);
         setState((prev) => ({
@@ -272,7 +272,7 @@ export function useTts(): UseTts {
               downloadProgress: null,
             };
           });
-          queueRef.current?.stop();
+          queueRef.current?.dispose();
           queueRef.current = null;
         })
         .catch((err) => {
@@ -311,7 +311,7 @@ export function useTts(): UseTts {
       const stale = () => opRef.current !== myOp;
 
       // Stop any existing playback.
-      queueRef.current?.stop();
+      queueRef.current?.dispose();
       queueRef.current = null;
 
       // Use pre-chunked texts if provided (so synthesis chunks align 1:1 with
@@ -343,21 +343,17 @@ export function useTts(): UseTts {
         client.prioritize(resumeFrom.chunkIndex);
       }
 
-      // The queue is created lazily after the first chunk decodes, because
-      // decodeWav() may close and recreate the AudioContext at a different
-      // sample rate (Piper outputs 16kHz or 22.05kHz depending on the voice).
-      // If we created the queue upfront with the wrong context, all
-      // source.start() calls would silently fail on a closed context.
+      // The queue is created lazily after the first chunk decodes. It creates
+      // its own AudioContext (owned and closed in dispose()), separate from the
+      // decode context in audio.ts. This avoids leaking AudioContexts on iOS
+      // Safari, which limits running contexts to ~4.
       let queue: PlaybackQueue | null = null;
       let firstChunkPlayed = false;
       const decodePromises: Promise<void>[] = [];
 
       const ensureQueue = () => {
         if (queue) return queue;
-        // getAudioContext() now returns the context at the correct sample rate
-        // (decodeWav already called it with the WAV's sample rate).
-        const ctx = getAudioContext();
-        queue = new PlaybackQueue(ctx, {
+        queue = new PlaybackQueue({
           onChange: (snap: PlaybackSnapshot) => {
             if (stale()) return;
             const status = mapQueueState(snap.state);
@@ -508,7 +504,7 @@ export function useTts(): UseTts {
 
   const cancel = useCallback(() => {
     clientRef.current?.cancel();
-    queueRef.current?.stop();
+    queueRef.current?.dispose();
     queueRef.current = null;
     update({
       status: "idle",
@@ -525,7 +521,7 @@ export function useTts(): UseTts {
 
   const reset = useCallback(() => {
     clientRef.current?.cancel();
-    queueRef.current?.stop();
+    queueRef.current?.dispose();
     queueRef.current = null;
     setState((prev) => ({
       ...IDLE_STATE,

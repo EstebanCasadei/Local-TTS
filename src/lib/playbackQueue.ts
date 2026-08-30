@@ -41,6 +41,21 @@ export interface PlaybackSnapshot {
 export interface PlaybackQueueOptions {
   onChange?: (snapshot: PlaybackSnapshot) => void;
   gapMs?: number;
+  /** Inject a context (tests only). Production code lets the queue create its own. */
+  audioContext?: AudioContext;
+}
+
+/**
+ * Creates a new AudioContext for playback. The queue owns this context and
+ * closes it in dispose() — this is critical on iOS Safari, which limits the
+ * number of running AudioContexts (~4). Sharing/leaking contexts across
+ * playback sessions eventually throws UnknownError.
+ */
+function createPlaybackContext(): AudioContext {
+  const Ctor =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  return new Ctor();
 }
 
 export class PlaybackQueue {
@@ -48,6 +63,7 @@ export class PlaybackQueue {
   private gap: number;
   private onChange?: (snapshot: PlaybackSnapshot) => void;
   private gain: GainNode;
+  private disposed = false;
 
   private rate = 1;
 
@@ -83,13 +99,13 @@ export class PlaybackQueue {
   /** Cached snapshot of chunkStartTimes — only rebuilt when values change. */
   private chunkStartTimesSnapshot: (number | undefined)[] = [];
 
-  constructor(ctx: AudioContext, options: PlaybackQueueOptions = {}) {
-    this.ctx = ctx;
+  constructor(options: PlaybackQueueOptions = {}) {
+    this.ctx = options.audioContext ?? createPlaybackContext();
     this.gap = (options.gapMs ?? GAP_MS) / 1000;
     this.onChange = options.onChange;
-    this.gain = ctx.createGain();
+    this.gain = this.ctx.createGain();
     this.gain.gain.value = 1;
-    this.gain.connect(ctx.destination);
+    this.gain.connect(this.ctx.destination);
   }
 
   /** Sets how many chunks to expect. Must be called before push(). */
@@ -308,6 +324,20 @@ export class PlaybackQueue {
     this.stopTicker();
     if (this.ctx.state === "suspended") await this.ctx.resume();
     this.notify();
+  }
+
+  /**
+   * Stops playback AND closes the AudioContext, releasing the browser's
+   * audio resources. Call this when the queue is being replaced or the
+   * component unmounts — NOT on pause (the context is needed to resume).
+   * On iOS Safari, failing to close contexts leaks them and eventually
+   * throws UnknownError (~4 context limit). Safe to call multiple times.
+   */
+  async dispose(): Promise<void> {
+    await this.stop();
+    if (this.disposed) return;
+    this.disposed = true;
+    this.ctx.close().catch(() => {});
   }
 
   get stateValue(): PlaybackState {
