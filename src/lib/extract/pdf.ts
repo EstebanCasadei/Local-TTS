@@ -4,14 +4,16 @@
 // reached via a dynamic import from extract/index.ts — so the ~2MB library
 // never lands in the main bundle, only downloading once a user opens a PDF.
 //
-// We use pdfjs's LEGACY build, not the modern one. The modern build
-// (pdfjs-dist/build/pdf.mjs) assumes very new browsers and uses 2025-era JS
-// APIs unconditionally — ReadableStream async iterators (for await...of) and
-// Map/WeakMap.prototype.getOrInsertComputed() — that stable iOS Safari lacks,
-// causing "TypeError: undefined is not a function" crashes on PDF upload
-// (GlitchTip LOCALTTS-1/2/3, upstream mozilla/pdf.js#21557 & #20973). The
-// legacy build polyfills these via core-js, so it works on Safari. Cost: the
-// bundle is ~180KB larger pre-gzip (~50KB gzipped). See pdfjs's FAQ on legacy:
+// We use pdfjs's LEGACY build, not the modern one. The modern build uses
+// 2025-era JS APIs unconditionally that stable iOS Safari lacks, causing
+// "TypeError: undefined is not a function" crashes on PDF upload (GlitchTip
+// LOCALTTS-1/2/3, upstream mozilla/pdf.js#21557 & #20973). The legacy build
+// polyfills JS language APIs via core-js (e.g. Map/WeakMap.getOrInsertComputed
+// — fixes LOCALTTS-3), but core-js does NOT polyfill Web APIs, so
+// ReadableStream[Symbol.asyncIterator] (used by getTextContent's for-await-of)
+// is still missing on iOS Safari and even Node.js. We polyfill that ourselves
+// below — the approach recommended by pdfjs maintainers in issue #20973.
+// Cost of legacy build: ~18KB gzipped. See pdfjs FAQ:
 // https://github.com/mozilla/pdf.js/wiki/Frequently-Asked-Questions#faq-support
 
 import {
@@ -30,6 +32,41 @@ import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 type PdfjsModule = typeof import("pdfjs-dist");
 type PdfDocument = Awaited<ReturnType<PdfjsModule["getDocument"]>["promise"]>;
 type OutlineNode = Awaited<ReturnType<PdfDocument["getOutline"]>>[number];
+
+/**
+ * Polyfills `ReadableStream.prototype[Symbol.asyncIterator]` if missing.
+ *
+ * pdfjs's getTextContent() (both modern and legacy builds) uses
+ * `for await (const value of readableStream)`, which requires this async
+ * iterator. Stable iOS Safari and Node.js don't ship it (only Safari 26.4 TP
+ * does). Without the polyfill, `for await...of` on a ReadableStream throws
+ * "TypeError: undefined is not a function" — the root cause of GlitchTip
+ * LOCALTTS-1/2/4. Upstream: mozilla/pdf.js#20973.
+ *
+ * The implementation matches the spec: get a reader, read chunks until done,
+ * yield each, release the lock in finally. Runs once at module load, before
+ * any pdfjs code executes.
+ */
+export function polyfillReadableStreamAsyncIterator(): void {
+  if (typeof ReadableStream === "undefined") return;
+  if (ReadableStream.prototype[Symbol.asyncIterator]) return;
+
+  ReadableStream.prototype[Symbol.asyncIterator] = async function* (): AsyncGenerator {
+    const reader = this.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return;
+        yield value;
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  };
+}
+
+// Apply once at module load — before pdfjs is dynamically imported below.
+polyfillReadableStreamAsyncIterator();
 
 /**
  * Extracts text from a PDF, page by page, reporting progress via onProgress.
