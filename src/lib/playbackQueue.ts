@@ -64,6 +64,13 @@ export interface PlaybackQueueOptions {
 let unmuted = false;
 function unmuteAudio(): void {
   if (unmuted) return;
+  // Desktop browsers don't need the iOS audio-session workaround, and the
+  // looping silent <audio> element can keep the media thread busy. Skip it.
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  if (!isIOS) {
+    unmuted = true;
+    return;
+  }
   // Modern iOS (17+): set the audio session to "playback" so the silent
   // switch doesn't mute Web Audio. Feature-detect — not all browsers ship
   // navigator.audioSession.
