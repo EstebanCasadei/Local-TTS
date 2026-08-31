@@ -46,12 +46,64 @@ export interface PlaybackQueueOptions {
 }
 
 /**
+ * Ensures Web Audio output is not muted by the iOS hardware silent switch.
+ *
+ * iOS Safari defaults the page's audio session to "ambient", which is
+ * governed by the physical mute switch — when it's on silent, Web Audio
+ * plays silently (no error, AudioContext.state reads "running", but zero
+ * output). Volume at max doesn't override the switch.
+ *
+ * Since iOS 17 / Safari 16.4, setting navigator.audioSession.type = "playback"
+ * switches to the media/playback category (same as music apps), which is NOT
+ * muted by the switch. For older iOS, the fallback is a looping silent
+ * <audio> element that keeps the page in the playback category.
+ *
+ * Must be called from a user gesture (e.g. the play button click) — the
+ * audioSession API and <audio>.play() both require it.
+ */
+let unmuted = false;
+function unmuteAudio(): void {
+  if (unmuted) return;
+  // Modern iOS (17+): set the audio session to "playback" so the silent
+  // switch doesn't mute Web Audio. Feature-detect — not all browsers ship
+  // navigator.audioSession.
+  const nav = navigator as unknown as { audioSession?: { type: string } };
+  if (nav.audioSession) {
+    try {
+      nav.audioSession.type = "playback";
+      unmuted = true;
+      return;
+    } catch {
+      // Some browsers may reject the type — fall through to the silent-audio
+      // workaround below.
+    }
+  }
+  // Fallback for older iOS: play a looping silent audio element alongside
+  // the Web Audio context. This drags the page's audio session off the
+  // "ambient" category into "playback". The element must keep playing
+  // continuously — a one-shot clip lets the category revert.
+  try {
+    const silent = document.createElement("audio");
+    silent.src =
+      "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+    silent.loop = true;
+    silent.volume = 0.01; // near-silent; 0 can be treated as "no audio" by iOS
+    void silent.play();
+    unmuted = true;
+  } catch {
+    // If both approaches fail, audio will be muted by the silent switch —
+    // nothing more we can do. The user will need to turn off the switch.
+  }
+}
+
+/**
  * Creates a new AudioContext for playback. The queue owns this context and
  * closes it in dispose() — this is critical on iOS Safari, which limits the
  * number of running AudioContexts (~4). Sharing/leaking contexts across
  * playback sessions eventually throws UnknownError.
  */
 function createPlaybackContext(): AudioContext {
+  unmuteAudio();
   const Ctor =
     window.AudioContext ||
     (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
