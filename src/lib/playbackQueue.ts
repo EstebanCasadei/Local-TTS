@@ -400,17 +400,23 @@ export class PlaybackQueue {
   }
 
   /**
-   * Releases decoded AudioBuffers for chunks well behind the current playback
-   * position to reduce peak memory. Keeps a window of recent chunks so backward
-   * seeks within ~10 chunks still work instantly; older chunks are evicted and
-   * would need re-decoding on seek. Call periodically during long playback.
+   * Releases time-stretched buffers for chunks well behind the current playback
+   * position to reduce peak memory. Only evicts from stretchedCache (which can
+   * be regenerated on demand) — NOT from the buffers Map (which seek() needs
+   * to find the target chunk's decoded AudioBuffer). Evicting from buffers
+   * would break backward seeks, causing playback stalls and re-synthesis
+   * stutter.
+   *
+   * Call this only on memory-constrained devices (iOS Safari), not on every
+   * tick on desktop — the O(n) iteration every 100ms is unnecessary overhead
+   * when memory isn't constrained.
    */
   releasePlayedBuffers(keepBehind = 10): void {
     const current = this.currentIndex;
-    for (const index of this.buffers.keys()) {
+    for (const key of this.stretchedCache.keys()) {
+      const index = Number(key.split(":")[0]);
       if (index < current - keepBehind) {
-        this.buffers.delete(index);
-        this.stretchedCache.delete(`${index}:${this.rate}`);
+        this.stretchedCache.delete(key);
       }
     }
   }

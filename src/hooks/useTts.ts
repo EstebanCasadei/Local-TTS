@@ -367,8 +367,12 @@ export function useTts(): UseTts {
               chunkStartTimes: snap.chunkStartTimes,
               activeChunkIndex: snap.index,
             }));
-            // Evict played buffers to reduce peak memory on iOS Safari.
-            queue?.releasePlayedBuffers();
+            // Evict played stretched buffers to reduce peak memory on iOS
+            // Safari. Only on touch/mobile devices — desktop has plenty of
+            // memory and the O(n) iteration every 100ms is unnecessary overhead.
+            if (matchMedia("(hover: none)").matches) {
+              queue?.releasePlayedBuffers();
+            }
           },
         });
         queue.setPlan(chunks.length);
