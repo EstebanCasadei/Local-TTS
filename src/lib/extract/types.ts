@@ -86,8 +86,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
 
 export class ExtractionError extends Error {
   code: ErrorCode;
-  constructor(code: ErrorCode, message?: string) {
-    super(message ?? ERROR_MESSAGES[code]);
+  constructor(code: ErrorCode, message?: string, cause?: unknown) {
+    super(message ?? ERROR_MESSAGES[code], cause !== undefined ? { cause } : undefined);
     this.code = code;
     this.name = "ExtractionError";
   }

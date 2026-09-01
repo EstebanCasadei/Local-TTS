@@ -22,6 +22,99 @@
 //   { type: "chunk-failed",      id, index, total, message }
 //   { type: "synthesize-done",   id, ok, failed: number[], cancelled }
 //   { type: "error",             id, message }
+
+// iOS Safari polyfill: FileSystemFileHandle.createWritable() is not supported
+// (only createSyncAccessHandle, which is worker-only, is). Both the Piper
+// library and voiceDownload.ts use createWritable() to write to OPFS. Since
+// this code runs in a worker, createSyncAccessHandle() is available — we
+// polyfill createWritable() to delegate to it. This must run before any OPFS
+// operations (the imports below trigger Piper's module-level code).
+if (typeof FileSystemFileHandle !== "undefined" && !FileSystemFileHandle.prototype.createWritable) {
+  // createSyncAccessHandle is worker-only — not in the DOM lib types.
+  type SyncAccessHandle = {
+    truncate: (size: number) => void;
+    write: (data: Uint8Array, options?: { at?: number }) => number;
+    flush: () => void;
+    close: () => void;
+  };
+
+  FileSystemFileHandle.prototype.createWritable =
+    async function (): Promise<FileSystemWritableFileStream> {
+      const handle = await (
+        this as unknown as { createSyncAccessHandle: () => Promise<SyncAccessHandle> }
+      ).createSyncAccessHandle();
+      let offset = 0;
+      let closed = false;
+      const ensureOpen = () => {
+        if (closed) throw new DOMException("The stream is closed.", "InvalidStateError");
+      };
+      // FileSystemWritableFileStream.write accepts Blob | BufferSource | string
+      // | { type, data, position }. We normalize to Uint8Array and append.
+      // The write() method is async, so we can await Blob.arrayBuffer() before
+      // calling the synchronous handle.write().
+      const toBytes = async (data: unknown): Promise<Uint8Array> => {
+        if (data instanceof ArrayBuffer) return new Uint8Array(data);
+        if (ArrayBuffer.isView(data))
+          return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+        if (data instanceof Blob) {
+          const buf = await data.arrayBuffer();
+          return new Uint8Array(buf);
+        }
+        if (typeof data === "string") return new TextEncoder().encode(data);
+        throw new TypeError(`Unsupported data type for write: ${typeof data}`);
+      };
+      const stream = {
+        write: async (chunk: unknown) => {
+          ensureOpen();
+          const bytes = await toBytes(chunk);
+          handle.write(bytes, { at: offset });
+          offset += bytes.byteLength;
+        },
+        close: async () => {
+          if (closed) return;
+          closed = true;
+          handle.flush();
+          handle.close();
+        },
+        abort: async () => {
+          if (closed) return;
+          closed = true;
+          handle.close();
+        },
+        seek: async (position: number) => {
+          ensureOpen();
+          offset = position;
+        },
+        truncate: async (size: number) => {
+          ensureOpen();
+          handle.truncate(size);
+          offset = Math.min(offset, size);
+        },
+        get locked() {
+          return !closed;
+        },
+        getWriter() {
+          return {
+            write: (chunk: unknown) => stream.write(chunk),
+            close: () => stream.close(),
+            abort: () => stream.abort(),
+            releaseLock() {},
+            get closed() {
+              return Promise.resolve(closed);
+            },
+            get desiredSize() {
+              return 1;
+            },
+            get ready() {
+              return Promise.resolve(undefined);
+            },
+          };
+        },
+      };
+      return stream as unknown as FileSystemWritableFileStream;
+    };
+}
+
 import * as tts from "@mintplex-labs/piper-tts-web";
 import { audioLocal, readChunk, saveChunk, textHash } from "./audioStore";
 import { reorderQueue } from "./reorderQueue";
@@ -101,6 +194,14 @@ async function getSession(voiceId: string): Promise<tts.TtsSession> {
     sessionVoiceId = null;
     (tts.TtsSession as unknown as { _instance: unknown })._instance = null;
     await tts.remove(voiceId).catch(() => {});
+    // iOS Safari throws UnknownError ("out of memory") when the Piper model
+    // (~63MB) + ONNX runtime WASM exceed the per-tab memory limit. Translate
+    // this into a user-friendly message instead of the opaque browser string.
+    if (err instanceof DOMException && (err.name === "UnknownError" || err.code === 0)) {
+      throw new Error(
+        "El dispositivo no tiene suficiente memoria para síntesis de voz. Prueba en otro dispositivo o navegador.",
+      );
+    }
     throw err;
   }
   sessionVoiceId = voiceId;

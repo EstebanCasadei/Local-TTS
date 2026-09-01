@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@mintplex-labs/piper-tts-web": "^1.0.5",
+    "@sentry/react": "^10.70.0",
     "@tailwindcss/vite": "^4.3.3",
     "firebase": "^12.17.1",
     "gsap": "^3.15.0",
@@ -30,6 +31,7 @@
   "devDependencies": {
     "@babel/core": "^7.29.7",
     "@rolldown/plugin-babel": "^0.2.3",
+    "@sentry/vite-plugin": "^5.4.0",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
     "@types/babel__core": "^7.20.5",

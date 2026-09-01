@@ -41,6 +41,80 @@ export interface PlaybackSnapshot {
 export interface PlaybackQueueOptions {
   onChange?: (snapshot: PlaybackSnapshot) => void;
   gapMs?: number;
+  /** Inject a context (tests only). Production code lets the queue create its own. */
+  audioContext?: AudioContext;
+}
+
+/**
+ * Ensures Web Audio output is not muted by the iOS hardware silent switch.
+ *
+ * iOS Safari defaults the page's audio session to "ambient", which is
+ * governed by the physical mute switch — when it's on silent, Web Audio
+ * plays silently (no error, AudioContext.state reads "running", but zero
+ * output). Volume at max doesn't override the switch.
+ *
+ * Since iOS 17 / Safari 16.4, setting navigator.audioSession.type = "playback"
+ * switches to the media/playback category (same as music apps), which is NOT
+ * muted by the switch. For older iOS, the fallback is a looping silent
+ * <audio> element that keeps the page in the playback category.
+ *
+ * Must be called from a user gesture (e.g. the play button click) — the
+ * audioSession API and <audio>.play() both require it.
+ */
+let unmuted = false;
+function unmuteAudio(): void {
+  if (unmuted) return;
+  // Desktop browsers don't need the iOS audio-session workaround, and the
+  // looping silent <audio> element can keep the media thread busy. Skip it.
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  if (!isIOS) {
+    unmuted = true;
+    return;
+  }
+  // Modern iOS (17+): set the audio session to "playback" so the silent
+  // switch doesn't mute Web Audio. Feature-detect — not all browsers ship
+  // navigator.audioSession.
+  const nav = navigator as unknown as { audioSession?: { type: string } };
+  if (nav.audioSession) {
+    try {
+      nav.audioSession.type = "playback";
+      unmuted = true;
+      return;
+    } catch {
+      // Some browsers may reject the type — fall through to the silent-audio
+      // workaround below.
+    }
+  }
+  // Fallback for older iOS: play a looping silent audio element alongside
+  // the Web Audio context. This drags the page's audio session off the
+  // "ambient" category into "playback". The element must keep playing
+  // continuously — a one-shot clip lets the category revert.
+  try {
+    const silent = document.createElement("audio");
+    silent.src =
+      "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+    silent.loop = true;
+    silent.volume = 0.01; // near-silent; 0 can be treated as "no audio" by iOS
+    void silent.play();
+    unmuted = true;
+  } catch {
+    // If both approaches fail, audio will be muted by the silent switch —
+    // nothing more we can do. The user will need to turn off the switch.
+  }
+}
+
+/**
+ * Creates a new AudioContext for playback. The queue owns this context and
+ * closes it in dispose() — this is critical on iOS Safari, which limits the
+ * number of running AudioContexts (~4). Sharing/leaking contexts across
+ * playback sessions eventually throws UnknownError.
+ */
+function createPlaybackContext(): AudioContext {
+  unmuteAudio();
+  const Ctor =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  return new Ctor();
 }
 
 export class PlaybackQueue {
@@ -48,6 +122,7 @@ export class PlaybackQueue {
   private gap: number;
   private onChange?: (snapshot: PlaybackSnapshot) => void;
   private gain: GainNode;
+  private disposed = false;
 
   private rate = 1;
 
@@ -83,13 +158,13 @@ export class PlaybackQueue {
   /** Cached snapshot of chunkStartTimes — only rebuilt when values change. */
   private chunkStartTimesSnapshot: (number | undefined)[] = [];
 
-  constructor(ctx: AudioContext, options: PlaybackQueueOptions = {}) {
-    this.ctx = ctx;
+  constructor(options: PlaybackQueueOptions = {}) {
+    this.ctx = options.audioContext ?? createPlaybackContext();
     this.gap = (options.gapMs ?? GAP_MS) / 1000;
     this.onChange = options.onChange;
-    this.gain = ctx.createGain();
+    this.gain = this.ctx.createGain();
     this.gain.gain.value = 1;
-    this.gain.connect(ctx.destination);
+    this.gain.connect(this.ctx.destination);
   }
 
   /** Sets how many chunks to expect. Must be called before push(). */
@@ -310,6 +385,49 @@ export class PlaybackQueue {
     this.notify();
   }
 
+  /**
+   * Stops playback AND closes the AudioContext, releasing the browser's
+   * audio resources. Call this when the queue is being replaced or the
+   * component unmounts — NOT on pause (the context is needed to resume).
+   * On iOS Safari, failing to close contexts leaks them and eventually
+   * throws UnknownError (~4 context limit). Safe to call multiple times.
+   *
+   * close() is called in a finally so the context is always released even
+   * if stop() throws (e.g. ctx.resume() on a bad context) — otherwise the
+   * context leaks and we're back to the original bug.
+   */
+  async dispose(): Promise<void> {
+    if (this.disposed) return;
+    this.disposed = true;
+    try {
+      await this.stop();
+    } finally {
+      this.ctx.close().catch(() => {});
+    }
+  }
+
+  /**
+   * Releases time-stretched buffers for chunks well behind the current playback
+   * position to reduce peak memory. Only evicts from stretchedCache (which can
+   * be regenerated on demand) — NOT from the buffers Map (which seek() needs
+   * to find the target chunk's decoded AudioBuffer). Evicting from buffers
+   * would break backward seeks, causing playback stalls and re-synthesis
+   * stutter.
+   *
+   * Call this only on memory-constrained devices (iOS Safari), not on every
+   * tick on desktop — the O(n) iteration every 100ms is unnecessary overhead
+   * when memory isn't constrained.
+   */
+  releasePlayedBuffers(keepBehind = 10): void {
+    const current = this.currentIndex;
+    for (const key of this.stretchedCache.keys()) {
+      const index = Number(key.split(":")[0]);
+      if (index < current - keepBehind) {
+        this.stretchedCache.delete(key);
+      }
+    }
+  }
+
   get stateValue(): PlaybackState {
     return this.state;
   }
@@ -436,6 +554,11 @@ export class PlaybackQueue {
       source.onended = () => {
         this.sources.delete(source);
         this.entries.delete(index);
+        // Free memory: evict the stretched buffer for this chunk. It can be
+        // regenerated on demand if the user seeks back. On iOS Safari, the
+        // cumulative memory from keeping all stretched buffers (one per chunk
+        // at rate != 1) can trigger UnknownError OOM.
+        this.stretchedCache.delete(`${index}:${this.rate}`);
       };
 
       startTime += playDuration + gap;
