@@ -119,18 +119,6 @@ import * as tts from "@mintplex-labs/piper-tts-web";
 import { audioLocal, readChunk, saveChunk, textHash } from "./audioStore";
 import { reorderQueue } from "./reorderQueue";
 import { downloadVoice } from "./voiceDownload";
-import { ToneClient } from "./narration/toneClient";
-import {
-  DEFAULT_NARRATION,
-  NEUTRAL_PARAMS,
-  profileFor,
-  synthesisCacheText,
-  type NarrationOptions,
-  type NarrationProfile,
-  type SynthesisParams,
-} from "./narration/profiles";
-
-const toneClient = new ToneClient();
 
 // In a worker, self is DedicatedWorkerGlobalScope with postMessage(message, transfer?).
 // The tsconfig includes DOM (not WebWorker) for the app, so we cast to the worker
@@ -220,13 +208,9 @@ async function getSession(voiceId: string): Promise<tts.TtsSession> {
   return session;
 }
 
-async function synthesizeChunk(
-  voiceId: string,
-  text: string,
-  params: SynthesisParams = NEUTRAL_PARAMS,
-): Promise<ArrayBuffer> {
+async function synthesizeChunk(voiceId: string, text: string): Promise<ArrayBuffer> {
   const activeSession = await getSession(voiceId);
-  const wav = await activeSession.predict(text, params);
+  const wav = await activeSession.predict(text);
 
   // predict() can return undefined or an empty Blob when inference fails
   // silently (typically from input that's too long). Convert to an explicit
@@ -258,32 +242,16 @@ async function handleSynthesize(
   chunks: string[],
   bookId?: string,
   chunkIds?: string[],
-  narration: NarrationOptions = DEFAULT_NARRATION,
 ): Promise<void> {
   cancelled = false;
   pendingPriority = null;
   const failed: number[] = [];
-  toneClient.onStatus = (update) => post({ type: "narration-status", id, update });
-  if (!narration.enabled) toneClient.dispose();
-  const profiles = new Map<number, NarrationProfile>();
-  const getProfile = async (index: number): Promise<NarrationProfile | undefined> => {
-    if (!narration.enabled) return undefined;
-    const existing = profiles.get(index);
-    if (existing) return existing;
-    const category = await toneClient.classify(chunks[index]);
-    if (cancelled) return undefined;
-    const previous = index > 0 ? await toneClient.classify(chunks[index - 1]) : undefined;
-    const profile = profileFor(category, narration, previous);
-    profiles.set(index, profile);
-    return profile;
-  };
 
   // When bookId + chunkIds are provided, check OPFS cache before synthesizing.
   // Chunks that have cached audio with a matching hash are loaded from disk
   // instead of running Piper — instant replay on subsequent listens.
   const useCache = bookId && chunkIds && chunkIds.length === chunks.length;
-  const cacheVoice = narration.enabled ? `${voiceId}~adaptive-${narration.personality}` : voiceId;
-  const cachedAudio = useCache ? await audioLocal(bookId!, cacheVoice) : new Map<string, string>();
+  const cachedAudio = useCache ? await audioLocal(bookId!, voiceId) : new Map<string, string>();
   const hashes: (string | null)[] = useCache
     ? await Promise.all(chunks.map((text) => textHash(text.trim(), voiceId)))
     : chunks.map(() => null);
@@ -292,20 +260,13 @@ async function handleSynthesize(
   const needSynthesis: number[] = [];
   for (let i = 0; i < chunks.length; i++) {
     if (cancelled) break;
-    // Resolve adaptive metadata only when checking an existing cache entry.
-    // New chunks are classified in synthesis priority order, not book order.
-    const profile = useCache && cachedAudio.has(chunkIds![i]) ? await getProfile(i) : undefined;
-    if (profile) hashes[i] = await textHash(synthesisCacheText(chunks[i], profile), voiceId);
     const hash = hashes[i];
     const chunkId = chunkIds?.[i];
     if (useCache && hash && chunkId && cachedAudio.get(chunkId) === hash) {
       // Cache hit — load from OPFS, no Piper inference needed.
-      const wav = await readChunk(bookId!, chunkId, hash, cacheVoice);
+      const wav = await readChunk(bookId!, chunkId, hash, voiceId);
       if (wav) {
-        post(
-          { type: "chunk-done", id, index: i, total: chunks.length, wav, cached: true, profile },
-          [wav],
-        );
+        post({ type: "chunk-done", id, index: i, total: chunks.length, wav, cached: true }, [wav]);
         continue;
       }
       // File was listed but couldn't be read (race condition?) — fall through to synthesis.
@@ -341,29 +302,21 @@ async function handleSynthesize(
   while (remainingOrder.length > 0) {
     if (cancelled) break;
     const index = remainingOrder.shift()!;
-    const profile = await getProfile(index);
-    if (cancelled) break;
-    if (useCache && profile)
-      hashes[index] = await textHash(synthesisCacheText(chunks[index], profile), voiceId);
 
     let lastError: Error | null = null;
     // One retry per chunk: failures are often transient (WASM memory, session
     // mid-init).
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const wav = await synthesizeChunk(voiceId, chunks[index].trim(), profile?.params);
+        const wav = await synthesizeChunk(voiceId, chunks[index].trim());
 
         // Save to OPFS cache if we have a bookId + chunkId + hash.
         if (useCache && hashes[index] && chunkIds?.[index]) {
-          await saveChunk(bookId!, chunkIds[index], hashes[index]!, wav, cacheVoice).catch(
-            () => {},
-          );
+          await saveChunk(bookId!, chunkIds[index], hashes[index]!, wav, voiceId).catch(() => {});
         }
 
         // Transfer the buffer (postMessage detaches it) to avoid copying.
-        post({ type: "chunk-done", id, index, total: chunks.length, wav, cached: false, profile }, [
-          wav,
-        ]);
+        post({ type: "chunk-done", id, index, total: chunks.length, wav, cached: false }, [wav]);
         lastError = null;
         break;
       } catch (err) {
@@ -405,11 +358,10 @@ async function handleSynthesize(
 let queue: Promise<void> = Promise.resolve();
 
 self.addEventListener("message", (event: MessageEvent) => {
-  const { type, id, voiceId, chunks, bookId, chunkIds, targetIndex, narration } = event.data ?? {};
+  const { type, id, voiceId, chunks, bookId, chunkIds, targetIndex } = event.data ?? {};
 
   if (type === "cancel") {
     cancelled = true;
-    toneClient.dispose();
     return;
   }
 
@@ -425,8 +377,7 @@ self.addEventListener("message", (event: MessageEvent) => {
     activeId = id;
     try {
       if (type === "download") await handleDownload(id, voiceId);
-      else if (type === "synthesize")
-        await handleSynthesize(id, voiceId, chunks, bookId, chunkIds, narration);
+      else if (type === "synthesize") await handleSynthesize(id, voiceId, chunks, bookId, chunkIds);
       else throw new Error(`Unknown message type: ${type}`);
     } catch (err) {
       post({

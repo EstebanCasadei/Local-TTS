@@ -81,21 +81,6 @@ function createMockBuffer(duration: number): AudioBuffer {
 }
 
 describe("PlaybackQueue", () => {
-  it("uses per-chunk narration gaps for scheduling, duration and seek offsets", async () => {
-    const ctx = createMockCtx();
-    const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });
-    queue.setPlan(3);
-    queue.push(2, createMockBuffer(2), 1100);
-    queue.push(0, createMockBuffer(2), 400);
-    queue.push(1, createMockBuffer(2), 800);
-    expect(queue.duration).toBeCloseTo(7.2);
-    await queue.play();
-    expect(queue.timeAtChunk(1)).toBeCloseTo(2.4);
-    expect(queue.timeAtChunk(2)).toBeCloseTo(5.2);
-    await queue.seekToChunk(2, 0.5);
-    expect(queue.position).toBeCloseTo(5.7);
-    await queue.dispose();
-  });
   it("starts in idle state", () => {
     const ctx = createMockCtx();
     const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });

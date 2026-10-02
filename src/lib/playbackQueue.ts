@@ -143,8 +143,6 @@ export class PlaybackQueue {
 
   private total = 0;
   private pushedDuration = 0;
-  private pushedGapDuration = 0;
-  private lastBufferIndex = -1;
   private pushedCount = 0;
 
   private nextIndex = 0;
@@ -185,8 +183,6 @@ export class PlaybackQueue {
     this.buffers.set(index, buffer);
     this.entries.set(index, buffer);
     this.gaps.set(index, gapMs != null ? gapMs / 1000 : this.gap);
-    this.pushedGapDuration += this.gaps.get(index)!;
-    this.lastBufferIndex = Math.max(this.lastBufferIndex, index);
     this.pushedCount++;
     this.pushedDuration += buffer.duration;
     this.pump();
@@ -471,9 +467,7 @@ export class PlaybackQueue {
 
   /** Total duration from all known buffers (grows as chunks arrive). */
   get duration(): number {
-    return (
-      this.pushedDuration + this.pushedGapDuration - (this.gaps.get(this.lastBufferIndex) ?? 0)
-    );
+    return this.pushedDuration + Math.max(0, this.pushedCount - 1) * this.gap;
   }
 
   /** Index currently playing, or the next one being waited on. */
