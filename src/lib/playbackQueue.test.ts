@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { PlaybackQueue, PlaybackState } from "./playbackQueue";
 
 // Mock AudioContext — we only need currentTime, createBufferSource, createGain,
@@ -81,6 +81,74 @@ function createMockBuffer(duration: number): AudioBuffer {
 }
 
 describe("PlaybackQueue", () => {
+  afterEach(() => vi.useRealTimers());
+
+  async function completedQueue(rate = 1) {
+    vi.useFakeTimers();
+    const ctx = createMockCtx();
+    const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });
+    queue.setPlan(2);
+    queue.push(0, createMockBuffer(20));
+    queue.push(1, createMockBuffer(20));
+    queue.close();
+    await queue.setRate(rate);
+    await queue.play();
+    ctx._advance(100);
+    ctx._sources.forEach((source) => source.onended?.());
+    vi.advanceTimersByTime(100);
+    expect(queue.stateValue).toBe(PlaybackState.DONE);
+    return { ctx, queue };
+  }
+
+  it("replays from zero after natural completion without new chunks", async () => {
+    const { ctx, queue } = await completedQueue();
+    const sourceCount = ctx._sources.length;
+    await queue.play();
+    expect(queue.position).toBe(0);
+    expect(ctx._sources.length).toBeGreaterThan(sourceCount);
+    expect(ctx._sources[sourceCount].start).toHaveBeenCalledWith(expect.any(Number), 0, 20);
+    vi.advanceTimersByTime(100);
+    expect(queue.stateValue).toBe(PlaybackState.PLAYING);
+    await queue.dispose();
+  });
+
+  it("allows rewind after completion and resumes from the selected position", async () => {
+    const { ctx, queue } = await completedQueue();
+    const target = queue.position - 15;
+    expect(await queue.seek(target)).toBe(1);
+    expect(queue.stateValue).toBe(PlaybackState.PAUSED);
+    expect(queue.position).toBeCloseTo(target);
+    const sourceCount = ctx._sources.length;
+    await queue.play();
+    expect(queue.position).toBeCloseTo(target);
+    expect(ctx._sources.length).toBeGreaterThan(sourceCount);
+    await queue.dispose();
+  });
+
+  it("accepts forward seeks clamped to the duration after completion", async () => {
+    const { queue } = await completedQueue();
+    await queue.seek(queue.position - 15);
+    expect(await queue.seek(Math.min(queue.duration, queue.position + 15))).toBe(1);
+    expect(queue.position).toBeCloseTo(queue.duration - 0.01);
+    await queue.dispose();
+  });
+
+  it("reports the full document position when completing at a different speed", async () => {
+    const { queue } = await completedQueue(2);
+    expect(queue.position).toBeCloseTo(queue.duration);
+    await queue.dispose();
+  });
+
+  it("plays a selected chunk after completion without a subsequent play resetting it", async () => {
+    const { queue } = await completedQueue();
+    await queue.seekToChunk(1, 5);
+    expect(queue.stateValue).toBe(PlaybackState.PLAYING);
+    await queue.play();
+    expect(queue.currentIndex).toBe(1);
+    expect(queue.position).toBeCloseTo(25.03);
+    await queue.dispose();
+  });
+
   it("starts in idle state", () => {
     const ctx = createMockCtx();
     const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });

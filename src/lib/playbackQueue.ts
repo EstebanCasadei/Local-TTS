@@ -206,11 +206,14 @@ export class PlaybackQueue {
   }
 
   async play(): Promise<void> {
+    // Completion keeps decoded buffers available. Replay schedules them again
+    // from the start instead of pumping an exhausted nextIndex.
+    if (this.state === PlaybackState.DONE) await this.seek(0);
     this.wantPlay = true;
     if (this.ctx.state === "suspended") await this.ctx.resume();
     this.startTicker();
     this.pump();
-    this.notify();
+    this.tick();
   }
 
   async pause(): Promise<void> {
@@ -226,6 +229,9 @@ export class PlaybackQueue {
   /** Seeks to a global position in seconds, re-scheduling from that point. */
   async seek(time: number): Promise<number> {
     if (!this.total || time < 0) return -1;
+    // A forward jump can land exactly at the end. Keep a playable position
+    // inside the final buffer rather than failing to find a target chunk.
+    time = Math.min(time, Math.max(0, this.duration - 0.01));
 
     let offset = 0;
     let targetIndex = -1;
@@ -262,6 +268,9 @@ export class PlaybackQueue {
     this.clearScheduled();
     this.pendingLocalOffset = localOffset;
     this.timelineEnd = offset;
+    // A completed queue is no longer terminal once the user selects a new
+    // position. Keep it paused so Play resumes here rather than restarting.
+    if (this.state === PlaybackState.DONE) this.state = PlaybackState.PAUSED;
     // Invalidate any stale chunk start times for chunks beyond the new
     // playback point. Without this, buildTokens can see an old `nextStart`
     // from a previous playback/seek and inflate the current chunk's
@@ -319,6 +328,7 @@ export class PlaybackQueue {
     this.clearScheduled();
     this.pendingLocalOffset = clampedLocalTime;
     this.timelineEnd = globalTime;
+    if (this.state === PlaybackState.DONE) this.state = PlaybackState.PAUSED;
     this.wantPlay = true;
     // Invalidate stale chunk start times beyond the new playback point so
     // the karaoke doesn't use an out-of-date `nextStart` for the chunk being
@@ -331,7 +341,7 @@ export class PlaybackQueue {
     if (this.ctx.state === "suspended") await this.ctx.resume();
     this.startTicker();
     this.pump();
-    this.notify();
+    this.tick();
     return index;
   }
 
@@ -462,7 +472,9 @@ export class PlaybackQueue {
 
     // Nothing currently playing — return the end of the last finished entry.
     const lastDone = [...this.scheduled].reverse().find((e) => t >= e.endTime);
-    return lastDone ? lastDone.offset + (lastDone.localStart ?? 0) + lastDone.playDuration : 0;
+    return lastDone
+      ? lastDone.offset + (lastDone.localStart ?? 0) + lastDone.playDuration * this.rate
+      : 0;
   }
 
   /** Total duration from all known buffers (grows as chunks arrive). */
