@@ -56,6 +56,7 @@ export function ReadingPage() {
   const [noteBookmark, setNoteBookmark] = useState<Bookmark | null>(null);
   const progressRef = useRef(progress);
   const lastVoiceIdRef = useRef<string | null>(null);
+  const narrationKey = `${tts.voiceId}:${tts.narration.enabled}:${tts.narration.personality}`;
   const sleepTimer = useSleepTimer(() => {
     tts.pause();
     ambient.pause();
@@ -115,12 +116,16 @@ export function ReadingPage() {
   // reorder queue; playback starts as soon as the resume chunk arrives.
   useEffect(() => {
     if (lastVoiceIdRef.current === null) {
-      lastVoiceIdRef.current = tts.voiceId;
+      lastVoiceIdRef.current = narrationKey;
       return;
     }
-    if (lastVoiceIdRef.current === tts.voiceId) return;
+    if (lastVoiceIdRef.current === narrationKey) return;
+    if ((tts.status === "idle" || tts.status === "error") && tts.synthesisChunks.length === 0) {
+      lastVoiceIdRef.current = narrationKey;
+      return;
+    }
     if (chunkIds.length === 0 || chunkTexts.length === 0) {
-      lastVoiceIdRef.current = tts.voiceId;
+      lastVoiceIdRef.current = narrationKey;
       return;
     }
 
@@ -128,12 +133,12 @@ export function ReadingPage() {
     const chunkStart = tts.chunkStartTimes[resumeIndex] ?? 0;
     const offsetLocal = Math.max(0, tts.currentPosition - chunkStart);
     const resumeFrom = { chunkIndex: resumeIndex, offsetLocal };
-    lastVoiceIdRef.current = tts.voiceId;
+    lastVoiceIdRef.current = narrationKey;
     void tts.synthesize(allText, bookId ?? undefined, chunkIds, chunkTexts, resumeFrom);
     // This effect must only re-synthesize when the voice changes; the resume
     // position comes from the current tts snapshot at the moment of the change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tts.voiceId, tts.status]);
+  }, [narrationKey, tts.status]);
 
   // "Pause at end of chapter" sleep timer: fires when playback moves into a
   // different chapter than the one active when the timer was armed. Scoped
@@ -507,6 +512,9 @@ export function ReadingPage() {
       />
 
       <VoicesPanel
+        narration={tts.narration}
+        narrationModel={tts.narrationModel}
+        onNarrationChange={tts.setNarration}
         downloadedIds={tts.downloadedVoiceIds}
         downloadingId={tts.downloadingVoiceId}
         onClose={() => setPanel(null)}

@@ -4,6 +4,8 @@ import { TtsClient, VOICES, type DownloadProgress } from "../lib/ttsClient";
 import { chunkText } from "../lib/chunker";
 import { decodeWav, formatDuration, closeDecodeContext } from "../lib/audio";
 import { PlaybackQueue, PlaybackState, type PlaybackSnapshot } from "../lib/playbackQueue";
+import { DEFAULT_NARRATION, PERSONALITIES, type NarrationOptions } from "../lib/narration/profiles";
+import type { ModelUpdate } from "../lib/narration/protocol";
 
 // The synthesis + playback lifecycle. With the streaming queue, playback starts
 // as soon as the first chunk arrives — no waiting for all chunks to synthesize.
@@ -39,9 +41,12 @@ export interface TtsState {
   /** Currently playing synthesis chunk index (for progress saving). */
   activeChunkIndex: number;
   error: string | null;
+  narration: NarrationOptions;
+  narrationModel: ModelUpdate;
 }
 
 export interface UseTts extends TtsState {
+  setNarration: (options: NarrationOptions) => void;
   setVoice: (voiceId: string) => void;
   setSpeed: (speed: number) => void;
   setVolume: (volume: number) => void;
@@ -70,6 +75,22 @@ const SPEED_STORAGE_KEY = "local-tts:speed";
 const VOLUME_STORAGE_KEY = "local-tts:volume";
 const DOWNLOADED_VOICES_KEY = "local-tts:downloaded-voices";
 const VOICE_STORAGE_KEY = "local-tts:voice";
+const NARRATION_STORAGE_KEY = "local-tts:narration";
+
+function loadNarration(): NarrationOptions {
+  try {
+    const saved = JSON.parse(localStorage.getItem(NARRATION_STORAGE_KEY) ?? "null");
+    if (
+      saved &&
+      typeof saved.enabled === "boolean" &&
+      PERSONALITIES.some((item) => item.id === saved.personality)
+    )
+      return saved;
+  } catch {
+    /* Ignore invalid preferences. */
+  }
+  return { ...DEFAULT_NARRATION };
+}
 
 function loadSavedVoiceId(): string {
   const saved = localStorage.getItem(VOICE_STORAGE_KEY);
@@ -121,6 +142,8 @@ const IDLE_STATE: TtsState = {
   chunkStartTimes: [],
   activeChunkIndex: 0,
   error: null,
+  narration: DEFAULT_NARRATION,
+  narrationModel: { status: "idle" },
 };
 
 export function useTts(): UseTts {
@@ -144,6 +167,7 @@ export function useTts(): UseTts {
     speed: loadSavedSpeed(),
     volume: loadSavedVolume(),
     downloadedVoiceIds: loadDownloadedVoiceIds(),
+    narration: loadNarration(),
   }));
 
   // Create the TTS client once. Its worker is shared across mounts (see
@@ -160,6 +184,21 @@ export function useTts(): UseTts {
 
   const update = useCallback((patch: Partial<TtsState>) => {
     setState((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  const setNarration = useCallback((options: NarrationOptions) => {
+    // Stop the previous synthesis request before queuing a new profile; otherwise
+    // the shared worker would finish the whole old book before applying it.
+    if (opRef.current > 0) {
+      ++opRef.current;
+      clientRef.current?.cancel();
+    }
+    localStorage.setItem(NARRATION_STORAGE_KEY, JSON.stringify(options));
+    setState((previous) => ({
+      ...previous,
+      narration: options,
+      narrationModel: { status: "idle" },
+    }));
   }, []);
 
   // Sync speedRef/volumeRef so the queue callback always has the latest values.
@@ -180,6 +219,7 @@ export function useTts(): UseTts {
       speed: prev.speed,
       volume: prev.volume,
       downloadedVoiceIds: prev.downloadedVoiceIds,
+      narration: prev.narration,
     }));
   }, []);
 
@@ -335,6 +375,7 @@ export function useTts(): UseTts {
         synthesisChunks: chunks,
         chunkStartTimes: new Array(chunks.length),
         activeChunkIndex: 0,
+        narrationModel: { status: "idle" },
       });
 
       // If resuming mid-document, tell the worker to synthesize the target
@@ -390,6 +431,9 @@ export function useTts(): UseTts {
           state.voiceId,
           chunks,
           {
+            onNarrationStatus: (narrationModel) => {
+              if (!stale()) update({ narrationModel });
+            },
             onVoiceProgress: (p: DownloadProgress) => {
               if (stale()) return;
               update({
@@ -409,7 +453,7 @@ export function useTts(): UseTts {
                 downloadedVoiceIds: Array.from(new Set([...prev.downloadedVoiceIds, prev.voiceId])),
               }));
             },
-            onChunk: ({ wav, index }) => {
+            onChunk: ({ wav, index, profile }) => {
               // Decode and push to the queue immediately — the queue schedules
               // it on the AudioContext clock. If it's the first chunk, the
               // queue starts playing right away (streaming).
@@ -417,7 +461,7 @@ export function useTts(): UseTts {
                 .then((buffer) => {
                   if (stale()) return;
                   const q = ensureQueue();
-                  q.push(index, buffer);
+                  q.push(index, buffer, profile?.gapMs);
                   setState((prev) => ({
                     ...prev,
                     chunksDone: prev.chunksDone + 1,
@@ -456,6 +500,7 @@ export function useTts(): UseTts {
           },
           bookId,
           chunkIds,
+          state.narration,
         );
 
         if (stale()) return;
@@ -494,7 +539,7 @@ export function useTts(): UseTts {
         });
       }
     },
-    [state.voiceId, update],
+    [state.voiceId, state.narration, update],
   );
 
   const play = useCallback(() => {
@@ -555,6 +600,7 @@ export function useTts(): UseTts {
       speed: prev.speed,
       volume: prev.volume,
       downloadedVoiceIds: prev.downloadedVoiceIds,
+      narration: prev.narration,
     }));
   }, []);
 
@@ -566,6 +612,7 @@ export function useTts(): UseTts {
 
   return {
     ...state,
+    setNarration,
     setVoice,
     setSpeed,
     setVolume,

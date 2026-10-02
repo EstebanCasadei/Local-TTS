@@ -16,11 +16,13 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@huggingface/transformers": "4.3.0",
     "@mintplex-labs/piper-tts-web": "^1.0.5",
     "@sentry/react": "^10.70.0",
     "@tailwindcss/vite": "^4.3.3",
     "firebase": "^12.17.1",
     "gsap": "^3.15.0",
+    "onnxruntime-web": "1.27.0",
     "pdfjs-dist": "6.1.200",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

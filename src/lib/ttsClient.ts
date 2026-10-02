@@ -6,6 +6,9 @@
 // instead of module-level globals (testable, disposable), and a cancel method
 // that actually awaits cleanup.
 
+import type { NarrationOptions, NarrationProfile } from "./narration/profiles";
+import type { ModelUpdate } from "./narration/protocol";
+
 export interface Voice {
   id: string;
   label: string;
@@ -34,6 +37,7 @@ export interface ChunkDone {
   total: number;
   wav: ArrayBuffer;
   cached: boolean;
+  profile?: NarrationProfile;
 }
 
 export interface ChunkFailed {
@@ -53,6 +57,7 @@ export interface SynthesizeCallbacks {
   onVoiceReady?: () => void;
   onChunk?: (c: ChunkDone) => void;
   onChunkFailed?: (c: ChunkFailed) => void;
+  onNarrationStatus?: (update: ModelUpdate) => void;
 }
 
 // Shared across all TtsClient instances (rather than one per instance) so the
@@ -178,12 +183,16 @@ export class TtsClient {
     callbacks: SynthesizeCallbacks = {},
     bookId?: string,
     chunkIds?: string[],
+    narration?: NarrationOptions,
   ): Promise<SynthesizeResult> {
     return this.request(
-      { type: "synthesize", voiceId, chunks, bookId, chunkIds },
+      { type: "synthesize", voiceId, chunks, bookId, chunkIds, narration },
       ["synthesize-done"],
       (data) => {
         switch (data.type) {
+          case "narration-status":
+            callbacks.onNarrationStatus?.(data.update as ModelUpdate);
+            break;
           case "download-progress":
             callbacks.onVoiceProgress?.({
               loaded: data.loaded as number,
@@ -199,6 +208,7 @@ export class TtsClient {
               total: data.total as number,
               wav: data.wav as ArrayBuffer,
               cached: data.cached as boolean,
+              profile: data.profile as NarrationProfile | undefined,
             });
             break;
           case "chunk-failed":
