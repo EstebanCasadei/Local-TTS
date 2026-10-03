@@ -44,6 +44,31 @@ export function ReadingPage() {
 
   const { chunks, progress, capitulos, loading } = useBook(bookId);
   const tts = useTts();
+  const [voiceTransition, setVoiceTransition] = useState<{
+    bookId: string | null;
+    voiceId: string;
+    position: number;
+    duration: number;
+    chunkStartTimes: (number | undefined)[];
+    activeChunkIndex: number;
+    chunksDone: number;
+  } | null>(null);
+  // A new voice's partial timeline must not move the old reading highlight.
+  const waitingForVoice =
+    voiceTransition?.bookId === bookId &&
+    !(tts.voiceId !== voiceTransition.voiceId && tts.isPlaying)
+      ? voiceTransition
+      : null;
+  useEffect(() => {
+    if (
+      voiceTransition &&
+      (tts.status === "error" ||
+        voiceTransition.bookId !== bookId ||
+        (tts.voiceId !== voiceTransition.voiceId && tts.isPlaying))
+    ) {
+      setVoiceTransition(null);
+    }
+  }, [bookId, tts.voiceId, tts.isPlaying, tts.status, voiceTransition]);
   const ambient = useAmbientAudio();
   const { show: showToast, dismiss: dismissToast } = useToast();
   const [panel, setPanel] = useState<"voices" | "audio" | "bookmarks" | null>(null);
@@ -240,12 +265,14 @@ export function ReadingPage() {
   const isIdle = tts.status === "idle" || tts.status === "error";
   const savedPosition = progress?.offsetSegundos ?? 0;
   const showSaved = isIdle && tts.currentPosition === 0 && savedPosition > 0;
-  const displayPosition = showSaved ? savedPosition : tts.currentPosition;
+  const displayPosition =
+    waitingForVoice?.position ?? (showSaved ? savedPosition : tts.currentPosition);
   // Use indexOf (same as handleRead) instead of parsing the chunk ID string.
   // The string parser assumed IDs like "c0001" → 1, but that's fragile and
   // can be wrong if the ID format ever changes.
   const savedChunkIndex = progress ? Math.max(0, chunkIds.indexOf(progress.chunkActualId)) : 0;
-  const displayChunkIndex = showSaved ? savedChunkIndex : tts.activeChunkIndex;
+  const displayChunkIndex =
+    waitingForVoice?.activeChunkIndex ?? (showSaved ? savedChunkIndex : tts.activeChunkIndex);
   const currentCapituloId = chunks[displayChunkIndex]?.capituloId ?? null;
   const chapterTitle = capitulos.find((c) => c.indice === currentCapituloId)?.titulo ?? "";
 
@@ -333,7 +360,10 @@ export function ReadingPage() {
   // +1 so the last chunk of the chapter still knows the next chunk's start
   // time (for its estimated duration), even though that next chunk belongs
   // to the following chapter and isn't included in chapterKaraokeChunks.
-  const chapterChunkStartTimes = tts.chunkStartTimes.slice(rangeStart, rangeEnd + 1);
+  const chapterChunkStartTimes = (waitingForVoice?.chunkStartTimes ?? tts.chunkStartTimes).slice(
+    rangeStart,
+    rangeEnd + 1,
+  );
   const chapterInitialChunkIndex =
     showSaved && savedChunkIndex >= rangeStart && savedChunkIndex < rangeEnd
       ? savedChunkIndex - rangeStart
@@ -348,7 +378,8 @@ export function ReadingPage() {
   // currentPosition > 0 — the position only advances when audio is actually
   // playing. While showSaved is true, pass duration=0 to KaraokeText so it
   // stays in chunk-level highlighting mode.
-  const karaokeDuration = showSaved ? 0 : tts.duration;
+  const playbackDuration = waitingForVoice?.duration ?? tts.duration;
+  const karaokeDuration = waitingForVoice ? playbackDuration : showSaved ? 0 : playbackDuration;
 
   // Total duration and progress percentage for the playback bar. tts.duration
   // only counts audio chunks synthesized so far, so for a long document still
@@ -358,12 +389,15 @@ export function ReadingPage() {
   // far through the document". Extrapolate a total from the characters/second
   // rate observed in the chunks synthesized so far, and switch to the real
   // duration once every chunk has arrived.
-  const isFullySynthesized = chunks.length > 0 && tts.chunksDone >= chunks.length;
+  const chunksDone = waitingForVoice?.chunksDone ?? tts.chunksDone;
+  const isFullySynthesized = chunks.length > 0 && chunksDone >= chunks.length;
   const charsSynthesized = chunkTexts
-    .slice(0, tts.chunksDone)
+    .slice(0, chunksDone)
     .reduce((sum, text) => sum + text.length, 0);
-  const secondsPerChar = charsSynthesized > 0 ? tts.duration / charsSynthesized : 0;
-  const estimatedTotalDuration = isFullySynthesized ? tts.duration : secondsPerChar * totalChars;
+  const secondsPerChar = charsSynthesized > 0 ? playbackDuration / charsSynthesized : 0;
+  const estimatedTotalDuration = isFullySynthesized
+    ? playbackDuration
+    : secondsPerChar * totalChars;
   const estimate = `Est. ${formatDuration(estimatedTotalDuration > 0 ? estimatedTotalDuration : totalChars / ESTIMATED_CHARS_PER_SEC)}`;
 
   const displayDuration = estimatedTotalDuration > 0 ? estimatedTotalDuration : tts.duration;
@@ -506,7 +540,21 @@ export function ReadingPage() {
         downloadedIds={tts.downloadedVoiceIds}
         downloadingId={tts.downloadingVoiceId}
         onClose={() => setPanel(null)}
-        onSelect={tts.downloadAndSetVoice}
+        onSelect={(voiceId) => {
+          if (voiceId === tts.voiceId || tts.status === "downloading-voice") return;
+          if (tts.duration > 0) {
+            setVoiceTransition({
+              bookId,
+              voiceId: tts.voiceId,
+              position: displayPosition,
+              duration: playbackDuration,
+              chunkStartTimes: [...(waitingForVoice?.chunkStartTimes ?? tts.chunkStartTimes)],
+              activeChunkIndex: displayChunkIndex,
+              chunksDone,
+            });
+          }
+          tts.downloadAndSetVoice(voiceId);
+        }}
         open={panel === "voices"}
         selectedId={tts.voiceId}
         voices={tts.voices}

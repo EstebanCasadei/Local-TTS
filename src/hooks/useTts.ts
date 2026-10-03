@@ -232,6 +232,7 @@ export function useTts(): UseTts {
           ...prev,
           voiceId,
           status: "idle",
+          isPlaying: false,
           downloadingVoiceId: null,
           downloadProgress: null,
         }));
@@ -244,6 +245,7 @@ export function useTts(): UseTts {
       setState((prev) => ({
         ...prev,
         status: "downloading-voice",
+        isPlaying: false,
         downloadingVoiceId: voiceId,
         downloadProgress: null,
       }));
