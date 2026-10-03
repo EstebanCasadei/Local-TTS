@@ -58,11 +58,13 @@ vi.mock("../components/reading", async () => ({
   AudioPanel: () => null,
   BookmarkNoteDialog: () => null,
   BookmarksPanel: () => null,
-  KaraokeText: () => null,
+  KaraokeText: (await import("../components/reading/KaraokeText")).KaraokeText,
   ReadingHeader: () => null,
   SleepTimerDialog: () => null,
   VoiceSphere: () => null,
-  VoicesPanel: () => null,
+  VoicesPanel: ({ onSelect }: { onSelect: (id: string) => void }) => (
+    <button onClick={() => onSelect("es_MX-claude-high")}>Switch test voice</button>
+  ),
 }));
 
 function renderReader() {
@@ -79,6 +81,12 @@ describe("ReadingPage completion controls", () => {
     vi.clearAllMocks();
     tts.status = "done";
     tts.currentPosition = 40;
+    tts.voiceId = "es_ES-davefx-medium";
+    tts.duration = 40;
+    tts.activeChunkIndex = 1;
+    tts.isPlaying = false;
+    tts.chunksDone = 2;
+    tts.chunkStartTimes = [0, 20];
   });
 
   it("uses replay instead of re-synthesizing from saved end-of-book progress", () => {
@@ -115,5 +123,70 @@ describe("ReadingPage completion controls", () => {
       ["Primer texto.", "Último texto."],
       { chunkIndex: 1, offsetLocal: 20 },
     );
+  });
+
+  it("holds the highlighted word through voice download and partial synthesis until playback resumes", () => {
+    tts.status = "playing";
+    tts.isPlaying = true;
+    tts.activeChunkIndex = 0;
+    tts.currentPosition = 3;
+    const view = renderReader();
+    expect(screen.getByText("Primer")).toHaveClass("bg-action-primary/40");
+    fireEvent.click(screen.getByText("Switch test voice"));
+    expect(tts.downloadAndSetVoice).toHaveBeenCalledWith("es_MX-claude-high");
+
+    tts.status = "downloading-voice";
+    tts.isPlaying = false;
+    tts.currentPosition = 0;
+    tts.duration = 0;
+    tts.chunkStartTimes = [];
+    view.rerender(
+      <MemoryRouter>
+        <ReadingPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("Primer")).toHaveClass("bg-action-primary/40");
+    expect(screen.getByText("Último")).not.toHaveClass("bg-action-primary/40");
+
+    tts.voiceId = "es_MX-claude-high";
+    tts.status = "synthesizing";
+    tts.duration = 2;
+    tts.currentPosition = 3;
+    tts.chunksDone = 1;
+    tts.chunkStartTimes = [0];
+    view.rerender(
+      <MemoryRouter>
+        <ReadingPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("Primer")).toHaveClass("bg-action-primary/40");
+
+    tts.status = "playing";
+    tts.isPlaying = true;
+    tts.duration = 40;
+    tts.currentPosition = 15;
+    tts.chunkStartTimes = [0, 20];
+    tts.chunksDone = 2;
+    view.rerender(
+      <MemoryRouter>
+        <ReadingPage />
+      </MemoryRouter>,
+    );
+    expect(
+      screen.getByText("texto.", { selector: "span.bg-action-primary\\/40" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Primer")).not.toHaveClass("bg-action-primary/40");
+
+    tts.status = "paused";
+    tts.isPlaying = false;
+    view.rerender(
+      <MemoryRouter>
+        <ReadingPage />
+      </MemoryRouter>,
+    );
+    expect(
+      screen.getByText("texto.", { selector: "span.bg-action-primary\\/40" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Primer")).not.toHaveClass("bg-action-primary/40");
   });
 });
