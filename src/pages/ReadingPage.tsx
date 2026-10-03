@@ -235,15 +235,11 @@ export function ReadingPage() {
   const format = bookFormat || "TXT";
   const voiceName = tts.voices.find((v) => v.id === tts.voiceId)?.label ?? "Voz";
 
-  // Show saved progress until the resume seek has actually fired and real
-  // playback has started. tts.duration grows as chunks are pushed (even before
-  // the resume seek), and tts.currentPosition stays at 0 until the seek fires.
-  // So we check currentPosition > 0 as the signal that real playback has started.
-  // Without this, the karaoke would try word-level highlighting with partial
-  // duration and no real chunkStartTimes — placing the highlight at the wrong word.
-  const isIdle = tts.status === "idle" || tts.status === "error" || tts.status === "done";
+  // Saved progress is a placeholder before starting a session. Once audio is
+  // loaded, use its position even at zero (replay or a paused seek to the start).
+  const isIdle = tts.status === "idle" || tts.status === "error";
   const savedPosition = progress?.offsetSegundos ?? 0;
-  const showSaved = tts.currentPosition === 0 && savedPosition > 0;
+  const showSaved = isIdle && tts.currentPosition === 0 && savedPosition > 0;
   const displayPosition = showSaved ? savedPosition : tts.currentPosition;
   // Use indexOf (same as handleRead) instead of parsing the chunk ID string.
   // The string parser assumed IDs like "c0001" → 1, but that's fragile and
@@ -493,7 +489,7 @@ export function ReadingPage() {
             handleRead();
           } else if (tts.status === "playing" || tts.status === "buffering") {
             tts.pause();
-          } else if (tts.status === "paused") {
+          } else if (tts.status === "paused" || tts.status === "done") {
             tts.play();
           }
         }}
