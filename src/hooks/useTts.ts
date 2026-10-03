@@ -54,10 +54,11 @@ export interface UseTts extends TtsState {
     bookId?: string,
     chunkIds?: string[],
     preChunked?: string[],
-    resumeFrom?: { chunkIndex: number; offsetLocal: number },
+    resumeFrom?: { chunkIndex: number; offsetLocal: number; chunkStartTime?: number },
   ) => Promise<void>;
   play: () => void;
   pause: () => void;
+  pauseForExport: () => Promise<void>;
   seek: (time: number) => void;
   seekToChunk: (index: number, localTime?: number) => void;
   cancel: () => void;
@@ -135,6 +136,17 @@ export function useTts(): UseTts {
   // request got rejected by a later restartWorker()) can't clobber state
   // set by a flow that superseded it.
   const opRef = useRef(0);
+  const lastSynthesisRef = useRef<{
+    text: string;
+    bookId?: string;
+    chunkIds?: string[];
+    chunks?: string[];
+  } | null>(null);
+  const exportResumeRef = useRef<{
+    chunkIndex: number;
+    offsetLocal: number;
+    chunkStartTime?: number;
+  } | null>(null);
 
   // Initialize voice/speed/volume/downloaded-voices from localStorage so the
   // user's preferences persist across sessions.
@@ -299,7 +311,7 @@ export function useTts(): UseTts {
       bookId?: string,
       chunkIds?: string[],
       preChunked?: string[],
-      resumeFrom?: { chunkIndex: number; offsetLocal: number },
+      resumeFrom?: { chunkIndex: number; offsetLocal: number; chunkStartTime?: number },
     ) => {
       const client = clientRef.current;
       if (!client) return;
@@ -310,6 +322,8 @@ export function useTts(): UseTts {
       // clobber the state this call is about to set.
       const myOp = ++opRef.current;
       const stale = () => opRef.current !== myOp;
+      exportResumeRef.current = null;
+      lastSynthesisRef.current = { text, bookId, chunkIds, chunks: preChunked };
 
       // Stop any existing playback.
       queueRef.current?.dispose();
@@ -429,7 +443,11 @@ export function useTts(): UseTts {
                   if (!firstChunkPlayed) {
                     if (resumeFrom && index === resumeFrom.chunkIndex) {
                       firstChunkPlayed = true;
-                      void q.seekToChunk(resumeFrom.chunkIndex, resumeFrom.offsetLocal);
+                      void q.seekToChunk(
+                        resumeFrom.chunkIndex,
+                        resumeFrom.offsetLocal,
+                        resumeFrom.chunkStartTime,
+                      );
                     } else if (!resumeFrom) {
                       firstChunkPlayed = true;
                       void q.play();
@@ -498,37 +516,117 @@ export function useTts(): UseTts {
   );
 
   const play = useCallback(() => {
+    const resume = exportResumeRef.current;
+    const source = lastSynthesisRef.current;
+    if (resume && source) {
+      void synthesize(source.text, source.bookId, source.chunkIds, source.chunks, resume);
+      return;
+    }
     queueRef.current?.play();
-  }, []);
+  }, [synthesize]);
+
+  const pauseForExport = useCallback(async () => {
+    // Invalidate late synthesis/decode callbacks before freeing the playback model.
+    ++opRef.current;
+    clientRef.current?.cancel();
+    clientRef.current?.restartWorker();
+    const queue = queueRef.current;
+    queueRef.current = null;
+    await queue?.pause();
+    const position = queue?.position ?? state.currentPosition;
+    const index = queue?.currentIndex ?? state.activeChunkIndex;
+    const chunkStartTime = queue?.timeAtChunk(index) ?? state.chunkStartTimes[index];
+    if (lastSynthesisRef.current) {
+      exportResumeRef.current =
+        state.status === "done"
+          ? { chunkIndex: 0, offsetLocal: 0 }
+          : {
+              chunkIndex: index,
+              offsetLocal: Math.max(0, position - (chunkStartTime ?? 0)),
+              chunkStartTime,
+            };
+    }
+    update({
+      status: lastSynthesisRef.current ? "paused" : "idle",
+      isPlaying: false,
+      currentPosition: position,
+      activeChunkIndex: index,
+    });
+    await queue?.dispose();
+    closeDecodeContext();
+  }, [state.currentPosition, state.status, state.activeChunkIndex, state.chunkStartTimes, update]);
 
   const pause = useCallback(() => {
     queueRef.current?.pause();
   }, []);
 
-  const seek = useCallback((time: number) => {
-    queueRef.current?.seek(time);
-  }, []);
+  const seek = useCallback(
+    (time: number) => {
+      if (exportResumeRef.current) {
+        const position = Math.max(0, time);
+        let index = 0;
+        state.chunkStartTimes.forEach((start, chunkIndex) => {
+          if (start != null && start <= position) index = chunkIndex;
+        });
+        exportResumeRef.current = {
+          chunkIndex: index,
+          offsetLocal: Math.max(0, position - (state.chunkStartTimes[index] ?? 0)),
+          chunkStartTime: state.chunkStartTimes[index],
+        };
+        update({ currentPosition: position, activeChunkIndex: index });
+        return;
+      }
+      queueRef.current?.seek(time);
+    },
+    [state.chunkStartTimes, update],
+  );
 
-  const seekToChunk = useCallback((index: number, localTime?: number) => {
-    // If the target chunk hasn't synthesized yet, jump the worker straight
-    // to it instead of leaving it to finish every chunk in between first.
-    clientRef.current?.prioritize(index);
-    queueRef.current?.seekToChunk(index, localTime);
-  }, []);
+  const seekToChunk = useCallback(
+    (index: number, localTime?: number) => {
+      if (exportResumeRef.current) {
+        exportResumeRef.current = {
+          chunkIndex: index,
+          offsetLocal: localTime ?? 0,
+          chunkStartTime: state.chunkStartTimes[index],
+        };
+        update({
+          activeChunkIndex: index,
+          currentPosition:
+            (state.chunkStartTimes[index] ?? state.currentPosition) + (localTime ?? 0),
+        });
+        return;
+      }
+      // If the target chunk hasn't synthesized yet, jump the worker straight
+      // to it instead of leaving it to finish every chunk in between first.
+      clientRef.current?.prioritize(index);
+      queueRef.current?.seekToChunk(index, localTime);
+    },
+    [state.chunkStartTimes, state.currentPosition, update],
+  );
 
   const rewind = useCallback(() => {
+    if (exportResumeRef.current) {
+      seek(Math.max(0, state.currentPosition - 15));
+      return;
+    }
     const q = queueRef.current;
     if (!q) return;
     void q.seek(Math.max(0, q.position - 15));
-  }, []);
+  }, [seek, state.currentPosition]);
 
   const forward = useCallback(() => {
+    if (exportResumeRef.current) {
+      seek(Math.min(Math.max(0, state.duration - 0.001), state.currentPosition + 15));
+      return;
+    }
     const q = queueRef.current;
     if (!q) return;
     void q.seek(Math.min(q.duration, q.position + 15));
-  }, []);
+  }, [seek, state.currentPosition, state.duration]);
 
   const cancel = useCallback(() => {
+    exportResumeRef.current = null;
+    lastSynthesisRef.current = null;
     clientRef.current?.cancel();
     queueRef.current?.dispose();
     queueRef.current = null;
@@ -546,6 +644,8 @@ export function useTts(): UseTts {
   }, [update]);
 
   const reset = useCallback(() => {
+    exportResumeRef.current = null;
+    lastSynthesisRef.current = null;
     clientRef.current?.cancel();
     queueRef.current?.dispose();
     queueRef.current = null;
@@ -575,6 +675,7 @@ export function useTts(): UseTts {
     synthesize,
     play,
     pause,
+    pauseForExport,
     seek,
     seekToChunk,
     cancel,

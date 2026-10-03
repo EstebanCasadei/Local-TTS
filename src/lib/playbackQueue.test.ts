@@ -83,6 +83,21 @@ function createMockBuffer(duration: number): AudioBuffer {
 describe("PlaybackQueue", () => {
   afterEach(() => vi.useRealTimers());
 
+  it("restores the export resume clock before earlier chunks are decoded", async () => {
+    vi.useFakeTimers();
+    const ctx = createMockCtx();
+    const queue = new PlaybackQueue({ audioContext: ctx as unknown as AudioContext });
+    queue.setPlan(2);
+    queue.push(1, createMockBuffer(20));
+    await queue.seekToChunk(1, 5, 20.03);
+    expect(queue.currentIndex).toBe(1);
+    expect(queue.position).toBeCloseTo(25.03);
+    expect(queue.timeAtChunk(1)).toBeCloseTo(20.03);
+    queue.push(0, createMockBuffer(20));
+    expect(queue.position).toBeCloseTo(25.03);
+    await queue.dispose();
+  });
+
   async function completedQueue(rate = 1) {
     vi.useFakeTimers();
     const ctx = createMockCtx();

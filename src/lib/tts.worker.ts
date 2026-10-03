@@ -358,7 +358,7 @@ async function handleSynthesize(
 let queue: Promise<void> = Promise.resolve();
 
 self.addEventListener("message", (event: MessageEvent) => {
-  const { type, id, voiceId, chunks, bookId, chunkIds, targetIndex } = event.data ?? {};
+  const { type, id, voiceId, chunks, bookId, chunkIds, targetIndex, outputName } = event.data ?? {};
 
   if (type === "cancel") {
     cancelled = true;
@@ -376,7 +376,54 @@ self.addEventListener("message", (event: MessageEvent) => {
   queue = queue.then(async () => {
     activeId = id;
     try {
-      if (type === "download") await handleDownload(id, voiceId);
+      if (type === "export-inspect" || type === "export-mp3") {
+        const { inspectExport, runExport } = await import("./mp3ExportWorker");
+        const book = { bookId, voiceId, chunks, chunkIds };
+        if (type === "export-inspect") {
+          post({ type: "export-inspected", id, estimate: await inspectExport(book) });
+        } else {
+          let loaded = false;
+          let latestProgress: import("./mp3Export").ExportProgress = {
+            phase: "loading",
+            completed: 0,
+            total: chunks.length,
+            bytes: 0,
+            seconds: 0,
+            remainingSeconds: null,
+          };
+          const exportPost = (message: Record<string, unknown>) => {
+            if (message.type === "export-progress")
+              latestProgress = message.progress as typeof latestProgress;
+            post(message);
+          };
+          await runExport(
+            id,
+            book,
+            outputName,
+            async (text) => {
+              if (!loaded) {
+                await downloadVoice(voiceId, (value) => {
+                  post({
+                    type: "export-progress",
+                    id,
+                    progress: {
+                      ...latestProgress,
+                      downloadPercent:
+                        value.total > 0
+                          ? Math.min(100, (value.loaded / value.total) * 100)
+                          : undefined,
+                    },
+                  });
+                });
+                await getSession(voiceId);
+                loaded = true;
+              }
+              return synthesizeChunk(voiceId, text);
+            },
+            exportPost,
+          );
+        }
+      } else if (type === "download") await handleDownload(id, voiceId);
       else if (type === "synthesize") await handleSynthesize(id, voiceId, chunks, bookId, chunkIds);
       else throw new Error(`Unknown message type: ${type}`);
     } catch (err) {

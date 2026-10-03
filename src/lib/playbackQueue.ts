@@ -289,7 +289,7 @@ export class PlaybackQueue {
   }
 
   /** Seeks to a specific chunk index (e.g. clicking a word in karaoke). */
-  async seekToChunk(index: number, localTime = 0): Promise<number> {
+  async seekToChunk(index: number, localTime = 0, knownStartTime?: number): Promise<number> {
     if (index < 0 || index >= this.total) return -1;
 
     // Calculate the global time of this chunk's start, and set chunkStartTimes
@@ -303,6 +303,12 @@ export class PlaybackQueue {
       if (!buf) break;
       this.chunkStartTimes[i] = globalTime;
       globalTime += buf.duration + (this.gaps.get(i) ?? this.gap);
+    }
+
+    // Export resumption can restore a known timeline anchor before earlier
+    // chunks decode. Keep the same clock instead of placing this chunk at zero.
+    if (knownStartTime != null && Number.isFinite(knownStartTime) && knownStartTime >= 0) {
+      globalTime = knownStartTime;
     }
 
     // Set the target chunk's start time too — the karaoke needs it to
