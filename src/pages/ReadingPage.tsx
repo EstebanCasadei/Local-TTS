@@ -27,6 +27,7 @@ import BookmarkIcon from "../icons/BookmarkIcon.svg?react";
 import ChevronUpIcon from "../icons/ChevronUpIcon.svg?react";
 import MusicIcon from "../icons/MusicIcon.svg?react";
 import SleepIcon from "../icons/SleepIcon.svg?react";
+import { ExportAudiobookDialog } from "../components/reading/ExportAudiobookDialog";
 
 /** Alto de la pestaña con la flecha: es lo único que asoma con el panel cerrado. */
 const HANDLE_HEIGHT = "2.25rem";
@@ -48,6 +49,7 @@ export function ReadingPage() {
   const { show: showToast, dismiss: dismissToast } = useToast();
   const [panel, setPanel] = useState<"voices" | "audio" | "bookmarks" | null>(null);
   const [sleepTimerOpen, setSleepTimerOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [bookTitle, setBookTitle] = useState<string>("");
   const [bookFormat, setBookFormat] = useState<string>("");
@@ -149,6 +151,10 @@ export function ReadingPage() {
   // activeChunkIndex maps directly to a repository chunk ID.
   const chunkTexts = useMemo(() => chunks.map((c) => c.texto), [chunks]);
   const chunkIds = useMemo(() => chunks.map((c) => c.id), [chunks]);
+  const exportBook = useMemo(
+    () => ({ bookId: bookId ?? "", voiceId: tts.voiceId, chunks: chunkTexts, chunkIds }),
+    [bookId, tts.voiceId, chunkTexts, chunkIds],
+  );
   const chunkCapituloIds = useMemo(() => chunks.map((c) => c.capituloId), [chunks]);
   const totalChars = useMemo(
     () => chunkTexts.reduce((sum, text) => sum + text.length, 0),
@@ -198,6 +204,7 @@ export function ReadingPage() {
   };
 
   const menuItems: MenuItem[] = [
+    { label: "Descargar audiolibro MP3", icon: MusicIcon, onSelect: () => setExportOpen(true) },
     { label: "Marcadores", icon: BookmarkIcon, onSelect: () => setPanel("bookmarks") },
     {
       label: "Música/sonido ambiente",
@@ -539,6 +546,18 @@ export function ReadingPage() {
         }
         open={sleepTimerOpen}
         remainingMs={sleepTimer.remainingMs}
+      />
+      <ExportAudiobookDialog
+        open={exportOpen}
+        book={exportBook}
+        title={bookTitle}
+        voiceName={voiceName}
+        voiceSize={tts.voices.find((voice) => voice.id === tts.voiceId)?.size ?? "según la voz"}
+        onClose={() => setExportOpen(false)}
+        onPause={async () => {
+          ambient.pause();
+          await tts.pauseForExport();
+        }}
       />
     </main>
   );

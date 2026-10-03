@@ -33,6 +33,19 @@ const FALLBACK_VOICE_SIZE: Record<string, number> = {
 // the table above.
 const DEFAULT_FALLBACK_SIZE = 63_000_000;
 
+/** Conservative disk allowance for voice files not available locally. */
+export async function voiceDownloadBytes(voiceId: string): Promise<number> {
+  const path = PATH_MAP[voiceId];
+  if (!path) throw new Error(`Unknown voice: ${voiceId}`);
+  const directory = await getPiperDir();
+  const name = fileNameFor(path);
+  const model = await isCached(directory, name);
+  const config = await isCached(directory, `${name}.json`);
+  return (
+    (model ? 0 : (FALLBACK_VOICE_SIZE[voiceId] ?? DEFAULT_FALLBACK_SIZE)) + (config ? 0 : 64 * 1024)
+  );
+}
+
 // Aborts the download (and discards the partial file) if it stalls for
 // longer than this, instead of leaving the user staring at "Descargando
 // voz…" forever.
@@ -49,8 +62,8 @@ function fileNameFor(url: string): string {
 
 async function isCached(dir: FileSystemDirectoryHandle, name: string): Promise<boolean> {
   try {
-    await dir.getFileHandle(name);
-    return true;
+    const handle = await dir.getFileHandle(name);
+    return (await handle.getFile()).size > 0;
   } catch {
     return false;
   }

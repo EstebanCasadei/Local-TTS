@@ -26,7 +26,8 @@
     "react-dom": "^19.2.8",
     "react-router": "8.3.0",
     "tailwindcss": "^4.3.3",
-    "three": "^0.185.1"
+    "three": "^0.185.1",
+    "wasm-media-encoders": "^0.7.0"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
