@@ -43,5 +43,8 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Build Chrome extension
+        run: pnpm build:extension
+
       - name: Test
         run: pnpm test

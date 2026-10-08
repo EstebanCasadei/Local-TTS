@@ -138,3 +138,7 @@ one shot.
 - **Oxlint** is the linter. To enable type-aware lint rules, install
   `oxlint-tsgolint` and set `"options": { "typeAware": true }` in
   `.oxlintrc.json`. See the [Oxlint rules docs](https://oxc.rs/docs/usage/linter/rules).
+
+## Chrome extension
+
+Build the selection reader with `pnpm build:extension` and load `dist-extension` in Chrome Developer mode. Selected texts append to a queue and are highlighted directly on their source pages. See [installation, behavior and limits](docs/CHROME_EXTENSION.md).
