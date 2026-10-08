@@ -15,3 +15,5 @@ the extension build. Voice models are downloaded separately from the Piper voice
 repository; each model's upstream model card specifies its own licensing:
 https://huggingface.co/diffusionstudio/piper-voices (download source)
 https://huggingface.co/rhasspy/piper-voices (upstream model cards)
+
+The panel uses the original Be Vietnam Pro typeface, bundled locally under the SIL Open Font License. Its license is included in licenses/be-vietnam-pro/OFL.txt. Font source: https://github.com/google/fonts/tree/main/ofl/bevietnampro

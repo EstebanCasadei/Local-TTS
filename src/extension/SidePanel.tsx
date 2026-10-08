@@ -3,6 +3,12 @@ import { PlaybackControls } from "../components/reading/PlaybackControls";
 import { adjacentSelection, emptyQueue, queueKey, type SelectionQueue } from "./queue";
 import { useSelectionPlayback } from "./useSelectionPlayback";
 import { voiceIconSrc } from "../lib/voiceIcons";
+import BookIcon from "../icons/BookIcon.svg?react";
+import CloseIcon from "../icons/CloseIcon.svg?react";
+import TrashIcon from "../icons/TrashIcon.svg?react";
+import ChevronUpIcon from "../icons/ChevronUpIcon.svg?react";
+import CheckCircleFilledIcon from "../icons/CheckCircleFilledIcon.svg?react";
+import ShieldIcon from "../icons/ShieldIcon.svg?react";
 import PlayIcon from "../icons/PlayIcon.svg?react";
 import PauseIcon from "../icons/PauseIcon.svg?react";
 
@@ -160,18 +166,12 @@ export function SidePanel() {
   return (
     <div className="extension-shell">
       <header className="extension-header">
-        <div className="brand-mark">
-          <img src={chrome.runtime.getURL("icons/32.png")} alt="" />
-        </div>
-        <div>
-          <h1>
-            Local<span>TTS</span>
-          </h1>
-          <p>Tu web, en voz alta</p>
-        </div>
-        <span className="local-badge">
-          <span /> Local
-        </span>
+        <BookIcon className="brand-mark" aria-hidden="true" />
+        <h1 className="brand-name">
+          <span>Local</span>
+          <span>TTS</span>
+        </h1>
+        <span className="surface-label">Lectura web</span>
       </header>
 
       <main className="extension-main brand-scrollbar">
@@ -192,60 +192,39 @@ export function SidePanel() {
         )}
         {!active ? (
           <section className="empty-state">
-            <div className="empty-orb">
-              <span />
-              <span />
-              <span />
-              <span />
-              <span />
-            </div>
-            <p className="eyebrow">DALE VOZ A LO QUE LEES</p>
-            <h2>
-              Selecciona.
-              <br />
-              Escucha. Sigue.
-            </h2>
-            <p>Convierte cualquier selección en un momento para escuchar.</p>
+            <BookIcon className="empty-mark" aria-hidden="true" />
+            <h2>Selecciona un texto</h2>
+            <p>Agrega una lectura desde la página que estás visitando.</p>
             <ol>
+              <li>Selecciona un texto en una página</li>
+              <li>Haz clic derecho sobre la selección</li>
               <li>
-                <span>1</span>Selecciona un texto en una página
-              </li>
-              <li>
-                <span>2</span>Haz clic derecho sobre la selección
-              </li>
-              <li>
-                <span>3</span>Elige <strong>Escuchar con LocalTTS</strong>
+                Elige <strong>Escuchar con LocalTTS</strong>
               </li>
             </ol>
             <div className="privacy-note">
-              La voz se genera en tu navegador.
-              <br />
-              La primera vez se descarga el modelo.
+              <ShieldIcon aria-hidden="true" />
+              <span>
+                La voz se genera en tu navegador.
+                <br />
+                La primera vez se descarga el modelo.
+              </span>
             </div>
           </section>
         ) : (
           <>
             <section className="now-playing">
-              <div className="section-heading">
-                <span className="eyebrow">AHORA ESCUCHANDO</span>
-                <span className="queue-position">
-                  {activeIndex + 1} / {queue.items.length}
+              <div className="reading-meta">
+                <span>
+                  Lectura {activeIndex + 1} de {queue.items.length}
                 </span>
-              </div>
-              <div className={isPlaying ? "audio-orb is-playing" : "audio-orb"} aria-hidden="true">
-                <span />
-                <span />
-                <span />
-                <span />
-                <span />
-                <span />
-                <span />
+                <img className="reading-voice" src={voiceIconSrc(player.voiceId)} alt="" />
               </div>
               <p className="source-host">{hostname(active.url)}</p>
               <h2>{active.title}</h2>
               <p className="selection-preview">{active.text}</p>
               <div className="playback-status" role="status">
-                <span className={isPlaying ? "status-dot active" : "status-dot"} />
+                {isPlaying ? <PlayIcon aria-hidden="true" /> : <PauseIcon aria-hidden="true" />}
                 {statusLabels[player.status]}
                 {player.downloadPercent !== null && player.status === "loading"
                   ? " · " + Math.round(player.downloadPercent) + "%"
@@ -277,7 +256,7 @@ export function SidePanel() {
             <section className="queue-section" aria-label="Cola de lectura">
               <div className="section-heading">
                 <h3>
-                  Tu cola <span>{queue.items.length}</span>
+                  Cola de lectura <span>{queue.items.length}</span>
                 </h3>
                 <button
                   className="text-button"
@@ -315,7 +294,7 @@ export function SidePanel() {
                             <PlayIcon />
                           )
                         ) : (
-                          String(index + 1).padStart(2, "0")
+                          String(index + 1)
                         )}
                       </span>
                       <span className="queue-copy">
@@ -332,7 +311,7 @@ export function SidePanel() {
                         void request("queue:remove", item.id);
                       }}
                     >
-                      ×
+                      <TrashIcon aria-hidden="true" />
                     </button>
                   </li>
                 ))}
@@ -350,7 +329,7 @@ export function SidePanel() {
               type="button"
               onClick={() => previous && void request("queue:activate", previous.id)}
             >
-              ← Anterior
+              <ChevronUpIcon className="previous-icon" aria-hidden="true" /> Anterior
             </button>
             <span>Lectura {activeIndex + 1}</span>
             <button
@@ -358,7 +337,7 @@ export function SidePanel() {
               type="button"
               onClick={() => next && void request("queue:activate", next.id)}
             >
-              Siguiente →
+              Siguiente <ChevronUpIcon className="next-icon" aria-hidden="true" />
             </button>
           </div>
           <PlaybackControls
@@ -389,20 +368,15 @@ export function SidePanel() {
           aria-labelledby="voice-settings-title"
           onCancel={() => setSettingsOpen(false)}
         >
-          <section
-            className="voice-settings"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="voice-settings-title"
-          >
+          <section className="voice-settings" aria-labelledby="voice-settings-title">
             <div className="section-heading">
-              <h2 id="voice-settings-title">Encuentra tu voz</h2>
+              <h2 id="voice-settings-title">Voces</h2>
               <button
                 type="button"
                 aria-label="Cerrar voces"
                 onClick={() => setSettingsOpen(false)}
               >
-                ×
+                <CloseIcon aria-hidden="true" />
               </button>
             </div>
             <p className="queue-hint">Voces en español, guardadas en tu navegador.</p>
@@ -424,7 +398,9 @@ export function SidePanel() {
                       {voice.accent} · {voice.size}
                     </small>
                   </span>
-                  <span className="voice-check">{voice.id === player.voiceId ? "✓" : "+"}</span>
+                  {voice.id === player.voiceId && (
+                    <CheckCircleFilledIcon className="voice-check" aria-hidden="true" />
+                  )}
                 </button>
               ))}
             </div>

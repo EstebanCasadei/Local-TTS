@@ -43,6 +43,8 @@ for (const name of ["ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm"]
 for (const name of ["piper_phonemize.wasm", "piper_phonemize.data"]) {
   await cp(join(piper, "build", name), join(output, "runtime", name));
 }
+await mkdir(join(output, "licenses", "be-vietnam-pro"), { recursive: true });
+await cp("public/fonts/OFL.txt", join(output, "licenses", "be-vietnam-pro", "OFL.txt"));
 // Preserve notices with the redistributable runtime assets.
 for (const [name, path] of [
   ["onnxruntime-web", ort],

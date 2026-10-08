@@ -83,7 +83,7 @@ dependencies. The CSP allows local WASM execution and forbids remote scripts.
 Voice model/configuration files are downloaded on first use through the existing
 streaming downloader and cached in OPFS. Model requests go to the upstream
 Hugging Face voice repository and its delivery endpoints; processing text remains
-local. No remote font is used in the panel. See
+local. The original Be Vietnam Pro font is bundled locally; no remote font is requested by the panel. See
 [third-party notices](../extension/THIRD_PARTY_NOTICES.md) before redistribution.
 
 ## Verification
@@ -115,3 +115,7 @@ jsdom tests alone do not establish WASM/OPFS behavior or compatibility with ever
 | ![Selection instructions](images/extension-empty.png) | ![Paused playback with queued selections](images/extension-player.png) |
 
 ![Highlight painted on the original webpage](images/extension-highlight.png)
+
+The voice picker reuses the original voice portraits and SVG status icons:
+
+![Original voice portraits in the voice picker](images/extension-voices.png)

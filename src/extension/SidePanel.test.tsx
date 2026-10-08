@@ -144,7 +144,7 @@ describe("extension panel", () => {
       target: { value: "50" },
     });
     expect(mock.seek).toHaveBeenCalledWith(5);
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente →" }));
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
     await waitFor(() =>
       expect(sendMessage).toHaveBeenCalledWith({ type: "queue:activate", windowId: 8, id: "b" }),
     );
