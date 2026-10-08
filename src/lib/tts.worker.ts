@@ -136,11 +136,18 @@ const ONNX_WASM_BASE = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist
 const PIPER_WASM_BASE =
   "https://cdn.jsdelivr.net/npm/@diffusionstudio/piper-wasm@1.0.0/build/piper_phonemize";
 
-const WASM_PATHS = {
-  onnxWasm: ONNX_WASM_BASE,
-  piperData: `${PIPER_WASM_BASE}.data`,
-  piperWasm: `${PIPER_WASM_BASE}.wasm`,
-};
+const WASM_PATHS =
+  import.meta.env.MODE === "extension"
+    ? {
+        onnxWasm: new URL("/runtime/", self.location.href).href,
+        piperData: new URL("/runtime/piper_phonemize.data", self.location.href).href,
+        piperWasm: new URL("/runtime/piper_phonemize.wasm", self.location.href).href,
+      }
+    : {
+        onnxWasm: ONNX_WASM_BASE,
+        piperData: `${PIPER_WASM_BASE}.data`,
+        piperWasm: `${PIPER_WASM_BASE}.wasm`,
+      };
 
 // TtsSession is a singleton internally: if a different voiceId is requested,
 // we reset _instance to force a reload of the ONNX model.

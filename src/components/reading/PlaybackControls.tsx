@@ -24,6 +24,8 @@ type PlaybackControlsProps = {
   onRewind?: () => void;
   onForward?: () => void;
   onBookmark?: () => void;
+  showBookmark?: boolean;
+  onSeek?: (percent: number) => void;
 };
 
 export function PlaybackControls({
@@ -42,25 +44,40 @@ export function PlaybackControls({
   onRewind,
   onForward,
   onBookmark,
+  showBookmark = true,
+  onSeek,
 }: PlaybackControlsProps) {
   return (
     <div className="flex flex-col gap-3 border-t border-border-primary bg-bg-tertiary px-4 py-3">
       <div className="mx-auto max-w-[1100px] w-full">
         <div className="flex items-center gap-3 mb-2">
           <span className="font-label shrink-0 text-text-primary">{position}</span>
-          <div
-            aria-label="Progreso de la lectura"
-            aria-valuemax={100}
-            aria-valuemin={0}
-            aria-valuenow={progressPercent}
-            className="h-1.5 flex-1 overflow-hidden rounded-full bg-black"
-            role="progressbar"
-          >
-            <div
-              className="h-full rounded-full bg-action-primary"
-              style={{ width: `${progressPercent}%` }}
+          {onSeek ? (
+            <input
+              aria-label="Posición de la lectura"
+              className="h-1.5 min-w-0 flex-1 cursor-pointer accent-brand-primary"
+              type="range"
+              min={0}
+              max={100}
+              step={0.1}
+              value={Math.max(0, Math.min(100, progressPercent))}
+              onChange={(event) => onSeek(Number(event.target.value))}
             />
-          </div>
+          ) : (
+            <div
+              aria-label="Progreso de la lectura"
+              aria-valuemax={100}
+              aria-valuemin={0}
+              aria-valuenow={progressPercent}
+              className="h-1.5 flex-1 overflow-hidden rounded-full bg-black"
+              role="progressbar"
+            >
+              <div
+                className="h-full rounded-full bg-action-primary"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          )}
           <span className="font-label shrink-0 text-text-primary">{duration}</span>
         </div>
 
@@ -86,9 +103,11 @@ export function PlaybackControls({
             <IconButton label="Adelantar 15 segundos" onClick={onForward}>
               <ForwardIcon className="size-5" />
             </IconButton>
-            <IconButton label="Guardar marcador" onClick={onBookmark}>
-              <BookmarkIcon className="size-5" />
-            </IconButton>
+            {showBookmark && (
+              <IconButton label="Guardar marcador" onClick={onBookmark}>
+                <BookmarkIcon className="size-5" />
+              </IconButton>
+            )}
           </div>
 
           <button

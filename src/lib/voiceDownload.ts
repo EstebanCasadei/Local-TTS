@@ -49,8 +49,8 @@ function fileNameFor(url: string): string {
 
 async function isCached(dir: FileSystemDirectoryHandle, name: string): Promise<boolean> {
   try {
-    await dir.getFileHandle(name);
-    return true;
+    const handle = await dir.getFileHandle(name);
+    return (await handle.getFile()).size > 0;
   } catch {
     return false;
   }
